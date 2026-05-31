@@ -4,11 +4,13 @@
 # Node
 node_modules/
 dist/
+coverage/
 *.log
 
 # Env & secrets — never commit
 .env
 .env.*
+!.env.example
 *.local
 
 # OS
