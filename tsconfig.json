@@ -1,8 +1,6 @@
 {
   "extends": ["@tsconfig/node24/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
