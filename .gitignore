@@ -1,0 +1,15 @@
+# GSD planning docs kept local-only
+.planning/
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Env & secrets — never commit
+.env
+.env.*
+*.local
+
+# OS
+.DS_Store
