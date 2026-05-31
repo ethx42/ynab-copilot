@@ -1,0 +1,11 @@
+PAGO DE OBLIGACIÓN FINANCIERA
+
+• Número de Autorización: 789045
+• Fecha y Hora: 2026-02-06 00:57:46
+• Cuenta Origen de Fondos: Cuenta de Ahorros No. 3172
+• Nombre de obligación: Tarjeta de Crédito Signature
+• Número de Obligación: 2596
+• Monto: $ 140,00
+• Resultado: Exitoso
+• Costo de la transacción (Sin IVA): $ 0,00
+• Canal: Banca Movil - Smartphones

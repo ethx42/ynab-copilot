@@ -21,27 +21,38 @@ export default tseslint.config(
     },
     plugins: { boundaries: boundariesPlugin },
     settings: {
+      // Resolve TS ESM imports (`.js` specifiers → `.ts` files) so the boundary
+      // rule can classify the import target into its hexagon tier.
+      "import/resolver": { typescript: { project: "tsconfig.json" } },
+      // `mode: "full"` matches the pattern against the whole file path so the
+      // `src/<tier>/**` globs classify each file into its hexagon tier.
       "boundaries/elements": [
-        { type: "core", pattern: "src/core/**" },
-        { type: "ports", pattern: "src/ports/**" },
-        { type: "adapters", pattern: "src/adapters/**" },
-        { type: "config", pattern: "src/config/**" },
+        { type: "core", mode: "full", pattern: "src/core/**" },
+        { type: "ports", mode: "full", pattern: "src/ports/**" },
+        { type: "adapters", mode: "full", pattern: "src/adapters/**" },
+        { type: "config", mode: "full", pattern: "src/config/**" },
       ],
     },
     rules: {
-      "boundaries/element-types": [
+      // v6 renamed `element-types` → `dependencies` and requires OBJECT selectors
+      // (`{ from: { type }, allow: { to: { type } } }`) — string selectors are
+      // treated as legacy and do NOT enforce.
+      "boundaries/dependencies": [
         "error",
         {
           default: "disallow",
           rules: [
             // core is PURE — may import only core + ports, NEVER adapters.
-            { from: ["core"], allow: ["core", "ports"] },
+            { from: { type: "core" }, allow: { to: { type: ["core", "ports"] } } },
             // ports — interfaces over pure types only.
-            { from: ["ports"], allow: ["ports", "core"] },
+            { from: { type: "ports" }, allow: { to: { type: ["ports", "core"] } } },
             // adapters wire the impure edges — may import everything.
-            { from: ["adapters"], allow: ["core", "ports", "adapters", "config"] },
+            {
+              from: { type: "adapters" },
+              allow: { to: { type: ["core", "ports", "adapters", "config"] } },
+            },
             // config (composition root) — may import core/ports/config.
-            { from: ["config"], allow: ["core", "ports", "config"] },
+            { from: { type: "config" }, allow: { to: { type: ["core", "ports", "config"] } } },
           ],
         },
       ],
