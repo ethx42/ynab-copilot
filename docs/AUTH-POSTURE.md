@@ -42,7 +42,7 @@ expired or revoked") — a silent, recurring total outage.
 
 1. Google Cloud Console → **Google Auth Platform → Audience**.
 2. Click **"Publish app"** → publishing status becomes **"In production"**.
-   - A project is considered *In production* after selecting **Publish app**.
+   - A project is considered _In production_ after selecting **Publish app**.
 3. For self-use (**< 100 users**) the app may remain **unverified** — the user clicks through
    the "unverified app" warning at consent. Verification is only required to exceed 100 users.
 4. **Re-issue the refresh token AFTER publishing.** A Testing-era token already carries the
@@ -62,10 +62,10 @@ Gmail **wiring** (token storage, message fetch) is **Phase 2**.
 
 ## Least-Privilege Summary
 
-| Credential | Scope | Least-privilege rationale |
-|------------|-------|---------------------------|
-| YNAB PAT | account-scoped, read-write | Narrowest PAT scope YNAB offers; alternative (OAuth read-only) is dormant until Phase 4 |
-| Gmail OAuth | `gmail.readonly` | Read-only — the job never mutates the mailbox |
+| Credential  | Scope                      | Least-privilege rationale                                                               |
+| ----------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| YNAB PAT    | account-scoped, read-write | Narrowest PAT scope YNAB offers; alternative (OAuth read-only) is dormant until Phase 4 |
+| Gmail OAuth | `gmail.readonly`           | Read-only — the job never mutates the mailbox                                           |
 
 ## Pending User Actions (for the phase-gate review of Criterion 4)
 

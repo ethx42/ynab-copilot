@@ -9,12 +9,12 @@ the zod env edge (`src/config/env.ts`), and the logging rule below.
 
 ## Secret Inventory
 
-| Secret | Purpose | Status (v1) | Source of truth | Scope |
-|--------|---------|-------------|-----------------|-------|
-| `YNAB_PAT` | YNAB Personal Access Token — authenticates every YNAB write | **ACTIVE** | YNAB → Account Settings → Developer Settings → New Token | Account-scoped, read-write, never expires (see `AUTH-POSTURE.md`) |
-| `YNAB_BUDGET_ID` | Target YNAB budget UUID | **ACTIVE** | YNAB budget URL / API | Single budget |
-| `ANTHROPIC_API_KEY` | Claude (tier-3 judgment layer) API key | Active (wired Phase 5) | Anthropic Console → API Keys | Static key, rotate manually |
-| Gmail OAuth **refresh token** | Unattended Gmail read | **FUTURE** (Phase 2 wiring) | One-time local consent flow after OAuth app is "In production" (see `AUTH-POSTURE.md`) | `gmail.readonly` (least privilege) |
+| Secret                        | Purpose                                                     | Status (v1)                 | Source of truth                                                                        | Scope                                                             |
+| ----------------------------- | ----------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `YNAB_PAT`                    | YNAB Personal Access Token — authenticates every YNAB write | **ACTIVE**                  | YNAB → Account Settings → Developer Settings → New Token                               | Account-scoped, read-write, never expires (see `AUTH-POSTURE.md`) |
+| `YNAB_BUDGET_ID`              | Target YNAB budget UUID                                     | **ACTIVE**                  | YNAB budget URL / API                                                                  | Single budget                                                     |
+| `ANTHROPIC_API_KEY`           | Claude (tier-3 judgment layer) API key                      | Active (wired Phase 5)      | Anthropic Console → API Keys                                                           | Static key, rotate manually                                       |
+| Gmail OAuth **refresh token** | Unattended Gmail read                                       | **FUTURE** (Phase 2 wiring) | One-time local consent flow after OAuth app is "In production" (see `AUTH-POSTURE.md`) | `gmail.readonly` (least privilege)                                |
 
 The canonical name list lives in **`.env.example`** (names + provenance only, **no values**).
 `.env.example` is the single source of truth for which env vars exist.
