@@ -2,10 +2,11 @@
 # push to `main`. A workflow alone does NOT block merge — branch protection makes these
 # checks REQUIRED (see docs/BRANCH-PROTECTION.md). Gate jobs use NO secrets.
 #
-# Source: 00-RESEARCH.md "Code Examples → .github/workflows/ci.yml" + actions/setup-node@v4
-# and pnpm/action-setup@v4 standard patterns. Context7 MCP/ctx7 were unavailable in the
-# execution environment (documented upstream MCP-stripping bug), so the least-privilege
-# `permissions:` keys and action inputs follow the verified RESEARCH.md shape.
+# pnpm is activated via corepack AFTER setup-node pins Node 24. pnpm@11.5.0 requires
+# Node >=22.13, so it must NOT be self-installed by pnpm/action-setup under the runner's
+# default Node (20) — that fails ERR_PNPM_UNSUPPORTED_ENGINE. corepack reads the pinned
+# `packageManager` from package.json and runs under Node 24. The pnpm store is cached
+# manually (actions/cache) keyed on the lockfile.
 name: ci
 
 on:
@@ -32,11 +33,16 @@ jobs:
         task: [typecheck, lint, format:check, test]
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # reads packageManager (pnpm@11.5.0) from package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+      - run: corepack enable # activates pinned pnpm@11.5.0 under Node 24
+      - run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile # supply-chain integrity (T-0-SC)
       - run: pnpm run ${{ matrix.task }}
 
@@ -44,10 +50,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+      - run: corepack enable
+      - run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint:boundaries
