@@ -1,0 +1,53 @@
+# Blocking quality gate. Runs the full local `pnpm run check` matrix on every PR and on
+# push to `main`. A workflow alone does NOT block merge — branch protection makes these
+# checks REQUIRED (see docs/BRANCH-PROTECTION.md). Gate jobs use NO secrets.
+#
+# Source: 00-RESEARCH.md "Code Examples → .github/workflows/ci.yml" + actions/setup-node@v4
+# and pnpm/action-setup@v4 standard patterns. Context7 MCP/ctx7 were unavailable in the
+# execution environment (documented upstream MCP-stripping bug), so the least-privilege
+# `permissions:` keys and action inputs follow the verified RESEARCH.md shape.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least-privilege GITHUB_TOKEN (T-0-06). The gate needs only to read the repo — it
+# performs no writes (no comments, no releases, no deployments). Never grant the broad
+# default token. Override per-job if a future job legitimately needs more.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [typecheck, lint, format:check, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # reads packageManager (pnpm@11.5.0) from package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile # supply-chain integrity (T-0-SC)
+      - run: pnpm run ${{ matrix.task }}
+
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint:boundaries
