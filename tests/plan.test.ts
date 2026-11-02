@@ -1,0 +1,205 @@
+import { describe, expect, it } from "vitest";
+import { assignImportIds } from "../src/core/domain/import-id.js";
+import type { NormalizedTransaction } from "../src/core/domain/transaction.js";
+import { planTransactions } from "../src/core/planning/plan.js";
+import { AccountRegistrySchema, resolveAccount } from "../src/core/resolution/account-registry.js";
+
+const CARD_ACCOUNT = "11111111-1111-4111-8111-111111111111";
+const MAIN_ACCOUNT = "22222222-2222-4222-8222-222222222222";
+const SAVINGS_ACCOUNT = "33333333-3333-4333-8333-333333333333";
+
+const registry = AccountRegistrySchema.parse({
+  entries: [
+    { bank: "bancolombia", last4: ["8139", "0338"], ynabAccountId: CARD_ACCOUNT },
+    { bank: "bancolombia", last4: ["1560"], ynabAccountId: MAIN_ACCOUNT },
+  ],
+  productFallbacks: [{ bank: "bancolombia", product: "savings", ynabAccountId: SAVINGS_ACCOUNT }],
+});
+
+const base: NormalizedTransaction = {
+  bank: "bancolombia",
+  template: "B-1",
+  kind: "purchase",
+  direction: "outflow",
+  amountPesos: 217375,
+  date: "2026-11-02",
+  time: "08:00",
+  account: { kind: "last4", last4: "8139" },
+  counterparty: "AMAZON MKTPLACE PMTS",
+  counterAccountLast4: null,
+  sourceMessageId: "m1",
+};
+
+describe("import_id", () => {
+  it("is deterministic from the bank's own fields and fits YNAB's 36-char limit", () => {
+    const [first] = assignImportIds([base]);
+    expect(first?.importId).toBe("BC:8139:20261102T0800:217375:1");
+    const big = assignImportIds([
+      {
+        ...base,
+        account: { kind: "product", product: "savings" },
+        amountPesos: 99_999_999_999,
+        date: "2026-12-31",
+        time: "23:59",
+      },
+    ]);
+    expect(big[0]?.importId.length).toBeLessThanOrEqual(36);
+  });
+
+  it("gives repeats of the same minute/amount distinct, order-stable ids", () => {
+    const ids = assignImportIds([base, { ...base, sourceMessageId: "m2" }, base]).map(
+      (x) => x.importId,
+    );
+    expect(ids).toEqual([
+      "BC:8139:20261102T0800:217375:1",
+      "BC:8139:20261102T0800:217375:2",
+      "BC:8139:20261102T0800:217375:3",
+    ]);
+  });
+
+  it("never collides across different cards or minutes", () => {
+    const ids = new Set(
+      assignImportIds([
+        base,
+        { ...base, time: "08:01" },
+        { ...base, account: { kind: "last4", last4: "0338" } },
+      ]).map((x) => x.importId),
+    );
+    expect(ids.size).toBe(3);
+  });
+});
+
+describe("account registry", () => {
+  it("resolves by last4, allowing several last4 per YNAB account (reissued card)", () => {
+    expect(resolveAccount(base, registry)).toEqual({
+      status: "resolved",
+      ynabAccountId: CARD_ACCOUNT,
+    });
+    expect(
+      resolveAccount({ ...base, account: { kind: "last4", last4: "0338" } }, registry),
+    ).toEqual({ status: "resolved", ynabAccountId: CARD_ACCOUNT });
+  });
+
+  it("resolves the AHORROS template through the product fallback", () => {
+    const inflow: NormalizedTransaction = {
+      ...base,
+      template: "B-2",
+      kind: "inflow",
+      direction: "inflow",
+      account: { kind: "product", product: "savings" },
+    };
+    expect(resolveAccount(inflow, registry)).toEqual({
+      status: "resolved",
+      ynabAccountId: SAVINGS_ACCOUNT,
+    });
+  });
+
+  it("returns unresolved (never a guess) for an unknown last4 or a missing fallback", () => {
+    expect(
+      resolveAccount({ ...base, account: { kind: "last4", last4: "9999" } }, registry),
+    ).toEqual({ status: "unresolved", reason: "unknown_last4" });
+    const noFallback = AccountRegistrySchema.parse({ entries: registry.entries });
+    expect(
+      resolveAccount({ ...base, account: { kind: "product", product: "savings" } }, noFallback),
+    ).toEqual({ status: "unresolved", reason: "no_product_fallback" });
+  });
+
+  it("rejects an ambiguous registry (one last4 -> two accounts) at load time", () => {
+    const parsed = AccountRegistrySchema.safeParse({
+      entries: [
+        { bank: "bancolombia", last4: ["8139"], ynabAccountId: CARD_ACCOUNT },
+        { bank: "bancolombia", last4: ["8139"], ynabAccountId: MAIN_ACCOUNT },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("planTransactions", () => {
+  it("builds unapproved, signed, cleared drafts for resolvable transactions", () => {
+    const [item] = planTransactions([base], registry);
+    expect(item).toEqual({
+      status: "ready",
+      draft: {
+        accountId: CARD_ACCOUNT,
+        date: "2026-11-02",
+        amountMilliunits: -217375000,
+        payeeName: "AMAZON MKTPLACE PMTS",
+        memo: null,
+        importId: "BC:8139:20261102T0800:217375:1",
+        cleared: "cleared",
+        approved: false,
+      },
+    });
+  });
+
+  it("records inflows as positive amounts", () => {
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-2",
+          kind: "inflow",
+          direction: "inflow",
+          account: { kind: "product", product: "savings" },
+          counterparty: "WIZELINE SAS",
+        },
+      ],
+      registry,
+    );
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: { amountMilliunits: 217375000, payeeName: "WIZELINE SAS" },
+    });
+  });
+
+  it("puts the destination of a transfer in the memo, not the payee", () => {
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-6",
+          kind: "transfer_out",
+          account: { kind: "last4", last4: "1560" },
+          amountPesos: 70500,
+          counterparty: "*75639212378",
+        },
+      ],
+      registry,
+    );
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: {
+        accountId: MAIN_ACCOUNT,
+        payeeName: null,
+        memo: "Transferencia Bancolombia a *75639212378",
+      },
+    });
+  });
+
+  it("routes unknown cards and card payments to review instead of writing", () => {
+    const items = planTransactions(
+      [
+        { ...base, account: { kind: "last4", last4: "9999" } },
+        {
+          ...base,
+          template: "B-5",
+          kind: "card_payment",
+          account: { kind: "last4", last4: "1560" },
+          counterAccountLast4: "2075",
+          counterparty: null,
+        },
+      ],
+      registry,
+    );
+    expect(items.map((i) => (i.status === "needs_review" ? i.reason : i.status))).toEqual([
+      "unknown_last4",
+      "card_payment_needs_transfer",
+    ]);
+  });
+
+  it("returns exactly one plan item per input (nothing is dropped)", () => {
+    const items = planTransactions([base, base, { ...base, time: "09:00" }], registry);
+    expect(items).toHaveLength(3);
+  });
+});
