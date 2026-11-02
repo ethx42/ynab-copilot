@@ -1,0 +1,41 @@
+# Unattended ingest: Gmail bank alerts -> YNAB (unapproved). Runs hourly.
+# A non-zero exit (unrecognized email, transaction needing review, no alerts at all, API
+# failure) fails the run, and GitHub emails the repo owner about failed scheduled runs.
+#
+# NOTE: this repo is public, so the logs are public — the job prints only counts and ids.
+# NOTE: GitHub disables scheduled workflows after 60 days without repo activity; re-enable
+# from the Actions tab (or push any commit) if that ever happens.
+name: ingest
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two ingests at once; let a running one finish (queued run waits).
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run ingest
+        env:
+          YNAB_PAT: ${{ secrets.YNAB_PAT }}
+          YNAB_BUDGET_ID: ${{ secrets.YNAB_BUDGET_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          ACCOUNT_REGISTRY_JSON: ${{ secrets.ACCOUNT_REGISTRY_JSON }}
