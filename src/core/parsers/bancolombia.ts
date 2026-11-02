@@ -126,6 +126,18 @@ const TEMPLATES: readonly TemplateSpec[] = [
     direction: "outflow",
     amountStyle: "us",
   },
+  {
+    // B-7: `Retiraste $500.000,00 en UNIC_ARME3 de tu T.Deb **0669 el 26/09/2026 a las 20:31.`
+    // Debit-card ATM withdrawal: CO separators behind a bare `$`, and a DOUBLE asterisk.
+    template: "B-7",
+    pattern: new RegExp(
+      String.raw`Retiraste (?<amt>\$[\d.,]+) en (?<cp>.+?) de tu T\.Deb \*{1,2}(?<last4>\d{4}) el ${DATE} a las ${TIME}`,
+      "g",
+    ),
+    kind: "withdrawal",
+    direction: "outflow",
+    amountStyle: "co",
+  },
 ];
 
 // Emails wrap lines mid-sentence (`en\r\nUBER RIDES`) and use non-breaking spaces.

@@ -151,6 +151,22 @@ describe("Bancolombia parser — live alert shapes (2026-11-02)", () => {
     });
   });
 
+  it("parses B-7 debit-card ATM withdrawals (CO separators behind `$`, double asterisk)", () => {
+    const [tx] = parseOk(
+      "¡Listo! Todo salió bien con tus movimientos Bancolombia: Retiraste $500.000,00 en UNIC_ARME3 de tu T.Deb **0669 el 26/09/2026 a las 20:31. Si tienes dudas, llamanos al 6045109095. Estamos cerca ¡",
+    );
+    expect(tx).toMatchObject({
+      template: "B-7",
+      kind: "withdrawal",
+      direction: "outflow",
+      amountPesos: 500000,
+      date: "2026-09-26",
+      time: "20:31",
+      account: { kind: "last4", last4: "0669" },
+      counterparty: "UNIC_ARME3",
+    });
+  });
+
   it("does not let a merchant swallow the next purchase sentence", () => {
     const txs = parseOk(
       "Bancolombia: Compraste COP10.000,00 en UNO, el 01/11/2026 a las 10:00. Esta compra esta asociada a T.Cred *8139. Bancolombia: Compraste COP20.000,00 en DOS con tu T.Cred *8139, el 01/11/2026 a las 10:05.",

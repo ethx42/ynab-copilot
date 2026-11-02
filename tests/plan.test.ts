@@ -177,6 +177,34 @@ describe("planTransactions", () => {
     });
   });
 
+  it("posts ATM withdrawals to the payee Cash, without the ATM id", () => {
+    const debitRegistry = AccountRegistrySchema.parse({
+      entries: [{ bank: "bancolombia", last4: ["0669", "1560"], ynabAccountId: MAIN_ACCOUNT }],
+    });
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-7",
+          kind: "withdrawal",
+          amountPesos: 500000,
+          account: { kind: "last4", last4: "0669" },
+          counterparty: "UNIC_ARME3",
+        },
+      ],
+      debitRegistry,
+    );
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: {
+        accountId: MAIN_ACCOUNT,
+        amountMilliunits: -500000000,
+        payeeName: "Cash",
+        memo: null,
+      },
+    });
+  });
+
   it("routes unknown cards and card payments to review instead of writing", () => {
     const items = planTransactions(
       [

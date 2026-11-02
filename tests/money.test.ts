@@ -23,6 +23,11 @@ describe("amount parsing (CO vs US styles must never be confused)", () => {
     expect(parseCoAmount("$80,000.00").ok).toBe(false);
   });
 
+  it("accepts CO separators behind a bare `$` (debit-card withdrawals) but not US ones", () => {
+    expect(parseCoAmount("$500.000,00")).toEqual({ ok: true, value: 500000 });
+    expect(parseCoAmount("$80,000.00").ok).toBe(false);
+  });
+
   it("rejects zero, garbage and empty values", () => {
     expect(parseCoAmount("COP0,00").ok).toBe(false);
     expect(parseUsAmount("$").ok).toBe(false);

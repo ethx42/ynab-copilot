@@ -24,6 +24,25 @@ const memoFor = (tx: NormalizedTransaction): string | null => {
     case "purchase":
     case "inflow":
     case "card_payment":
+    case "withdrawal":
+      return null;
+  }
+};
+
+// Santiago's YNAB convention: ATM withdrawals are posted to the payee "Cash" (the ATM id the
+// bank prints is not a payee).
+export const CASH_PAYEE = "Cash";
+
+const payeeFor = (tx: NormalizedTransaction): string | null => {
+  switch (tx.kind) {
+    case "purchase":
+    case "inflow":
+      return tx.counterparty;
+    case "withdrawal":
+      return CASH_PAYEE;
+    case "transfer_out":
+    case "qr_payment":
+    case "card_payment":
       return null;
   }
 };
@@ -36,12 +55,11 @@ export const toDraft = (
   const magnitude = pesosToMilliunits(tx.amountPesos);
   // Purchases and inflows carry the merchant/payer as the payee; transfers and QR payments
   // carry the destination in the memo instead (it is an account/key number, not a payee).
-  const payeeName = tx.kind === "purchase" || tx.kind === "inflow" ? tx.counterparty : null;
   return {
     accountId,
     date: tx.date,
     amountMilliunits: tx.direction === "outflow" ? -magnitude : magnitude,
-    payeeName,
+    payeeName: payeeFor(tx),
     memo: memoFor(tx),
     importId,
     cleared: "cleared",
