@@ -1,6 +1,7 @@
 import { gmail } from "@googleapis/gmail";
 import { OAuth2Client } from "google-auth-library";
 import { simpleParser } from "mailparser";
+import { parse as parseHtml } from "node-html-parser";
 import type { AlertEmail, MailPort } from "../../ports/mail.js";
 
 // Gmail adapter (read-only scope). Impure edge: lists the bank's alert emails and decodes
@@ -18,16 +19,26 @@ export interface GmailApi {
   getRaw(id: string): Promise<{ readonly raw: Buffer; readonly internalDateMs: number }>;
 }
 
+// Bancolombia alerts are multipart/alternative with ONLY a text/html part, and mailparser leaves
+// `text` empty for those. Reduce the HTML to its visible text: no markup, scripts, styles or
+// comments, entities decoded. Whitespace is collapsed later by the parser.
+const htmlToText = (html: string): string => {
+  const root = parseHtml(html);
+  for (const node of root.querySelectorAll("style, script, title, head")) node.remove();
+  return root.text.trim();
+};
+
 const toAlert = async (id: string, raw: Buffer, internalDateMs: number): Promise<AlertEmail> => {
-  // mailparser decodes the transfer encodings and, for HTML-only mails, derives `text` from
-  // the HTML. An empty result is passed on as-is: the parser then reports it as unrecognized
-  // (loud) instead of this adapter guessing.
   const mail = await simpleParser(raw);
+  const plain = mail.text?.trim() ?? "";
+  // Prefer a real text/plain part. An empty result is still passed on as-is: the parser then
+  // reports it as unrecognized (loud) instead of this adapter guessing.
+  const text = plain !== "" ? plain : typeof mail.html === "string" ? htmlToText(mail.html) : "";
   return {
     messageId: id,
     receivedAt: new Date(internalDateMs).toISOString(),
     from: mail.from?.text ?? "",
-    text: mail.text?.trim() ?? "",
+    text,
   };
 };
 
