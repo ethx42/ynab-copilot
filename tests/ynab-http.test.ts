@@ -12,6 +12,7 @@ const draft = (overrides: Partial<YnabTransactionDraft> = {}): YnabTransactionDr
   amountMilliunits: -217375000,
   payeeName: "AMAZON MKTPLACE PMTS",
   categoryId: null,
+  transferAccountId: null,
   memo: null,
   importId: "BC:8139:20261102T0800:217375:1",
   cleared: "cleared",
@@ -97,6 +98,58 @@ describe("YNAB HTTP adapter", () => {
     const body = sentBody(fetchImpl) as { transactions: Record<string, unknown>[] };
     expect(body.transactions[0]).toHaveProperty("category_id", CATEGORY);
     expect(body.transactions[1]).not.toHaveProperty("category_id");
+  });
+
+  it("posts a transfer under the target account's transfer payee, looked up once", async () => {
+    const TARGET = "33333333-3333-4333-8333-333333333333";
+    const fetchImpl = fakeFetch((call) =>
+      call === 1
+        ? jsonResponse(200, {
+            data: {
+              accounts: [
+                { id: TARGET, closed: false, deleted: false, transfer_payee_id: "payee-target" },
+                { id: ACCOUNT, closed: false, deleted: false, transfer_payee_id: "payee-main" },
+              ],
+            },
+          })
+        : jsonResponse(201, { data: { transaction_ids: ["t1"], duplicate_import_ids: [] } }),
+    );
+    const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
+    await ynab.createTransactions([
+      draft({ payeeName: null, transferAccountId: TARGET, importId: "BC:T" }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(`https://api.ynab.com/v1/budgets/${BUDGET}/accounts`);
+    const body = sentBody(fetchImpl, 1) as { transactions: Record<string, unknown>[] };
+    expect(body.transactions[0]).toHaveProperty("payee_id", "payee-target");
+    expect(body.transactions[0]).not.toHaveProperty("payee_name");
+    expect(body.transactions[0]).not.toHaveProperty("category_id");
+  });
+
+  it("fails loud, writing nothing, when the transfer target has no open transfer payee", async () => {
+    const fetchImpl = fakeFetch(() =>
+      jsonResponse(200, {
+        data: {
+          accounts: [{ id: ACCOUNT, closed: false, deleted: false, transfer_payee_id: "p" }],
+        },
+      }),
+    );
+    const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
+    await expect(
+      ynab.createTransactions([
+        draft({ payeeName: null, transferAccountId: "44444444-4444-4444-8444-444444444444" }),
+      ]),
+    ).rejects.toThrow("transfer payee");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call the accounts endpoint when no draft is a transfer", async () => {
+    const fetchImpl = fakeFetch(() =>
+      jsonResponse(201, { data: { transaction_ids: ["t1"], duplicate_import_ids: [] } }),
+    );
+    const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
+    await ynab.createTransactions([draft()]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("reports import_ids YNAB already had (idempotent re-run)", async () => {
