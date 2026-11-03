@@ -17,6 +17,21 @@ const CreateResponseSchema = z.object({
   }),
 });
 
+// Only what a transfer needs: each account's transfer payee. YNAB creates the counterpart leg
+// when a transaction is posted to that payee.
+const AccountsResponseSchema = z.object({
+  data: z.object({
+    accounts: z.array(
+      z.object({
+        id: z.string(),
+        closed: z.boolean().default(false),
+        deleted: z.boolean().default(false),
+        transfer_payee_id: z.string().nullable().default(null),
+      }),
+    ),
+  }),
+});
+
 export class YnabApiError extends Error {
   constructor(
     readonly status: number,
@@ -38,10 +53,27 @@ export type YnabHttpOptions = {
   readonly fetchImpl?: typeof fetch;
 };
 
-const toWire = (draft: YnabTransactionDraft): Record<string, unknown> => ({
+type TransferPayees = ReadonlyMap<string, string>;
+
+const requireTransferPayee = (payees: TransferPayees, accountId: string): string => {
+  const payeeId = payees.get(accountId);
+  // Never fall back to a plain payee name: that would book an expense where a transfer belongs.
+  if (payeeId === undefined) {
+    throw new Error("YNAB has no open account with a transfer payee for a transfer target");
+  }
+  return payeeId;
+};
+
+const toWire = (
+  draft: YnabTransactionDraft,
+  transferPayees: TransferPayees,
+): Record<string, unknown> => ({
   account_id: draft.accountId,
   date: draft.date,
   amount: draft.amountMilliunits,
+  ...(draft.transferAccountId === null
+    ? {}
+    : { payee_id: requireTransferPayee(transferPayees, draft.transferAccountId) }),
   ...(draft.payeeName === null ? {} : { payee_name: draft.payeeName.slice(0, 200) }),
   ...(draft.categoryId === null ? {} : { category_id: draft.categoryId }),
   ...(draft.memo === null ? {} : { memo: draft.memo.slice(0, 500) }),
@@ -60,26 +92,49 @@ export const createYnabHttpAdapter = (options: YnabHttpOptions): YnabPort => {
   const doFetch = options.fetchImpl ?? fetch;
   const url = `${API_BASE}/budgets/${encodeURIComponent(options.budgetId)}/transactions`;
 
-  const postChunk = async (drafts: readonly YnabTransactionDraft[]): Promise<CreateResult> => {
+  const accountsUrl = `${API_BASE}/budgets/${encodeURIComponent(options.budgetId)}/accounts`;
+
+  const throwApiError = async (response: Response): Promise<never> => {
+    const body: unknown = await response.json().catch(() => null);
+    const parsed = ErrorBodySchema.safeParse(body);
+    const retryAfter = Number(response.headers.get("retry-after"));
+    throw new YnabApiError(
+      response.status,
+      parsed.success ? parsed.data.error.name : null,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+    );
+  };
+
+  const loadTransferPayees = async (): Promise<TransferPayees> => {
+    const response = await doFetch(accountsUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${options.accessToken}` },
+    });
+    if (!response.ok) return throwApiError(response);
+    const parsed = AccountsResponseSchema.parse(await response.json());
+    const payees = new Map<string, string>();
+    for (const account of parsed.data.accounts) {
+      if (!account.closed && !account.deleted && account.transfer_payee_id !== null) {
+        payees.set(account.id, account.transfer_payee_id);
+      }
+    }
+    return payees;
+  };
+
+  const postChunk = async (
+    drafts: readonly YnabTransactionDraft[],
+    transferPayees: TransferPayees,
+  ): Promise<CreateResult> => {
     const response = await doFetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${options.accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ transactions: drafts.map(toWire) }),
+      body: JSON.stringify({ transactions: drafts.map((d) => toWire(d, transferPayees)) }),
     });
 
-    if (!response.ok) {
-      const body: unknown = await response.json().catch(() => null);
-      const parsed = ErrorBodySchema.safeParse(body);
-      const retryAfter = Number(response.headers.get("retry-after"));
-      throw new YnabApiError(
-        response.status,
-        parsed.success ? parsed.data.error.name : null,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
-      );
-    }
+    if (!response.ok) return throwApiError(response);
 
     const parsed = CreateResponseSchema.parse(await response.json());
     // Every submitted draft must come back either created or reported as a duplicate. Fewer
@@ -102,8 +157,12 @@ export const createYnabHttpAdapter = (options: YnabHttpOptions): YnabPort => {
     createTransactions: async (drafts) => {
       const created: string[] = [];
       const duplicates: string[] = [];
+      // Looked up once per run, and only when a transfer is actually being written.
+      const transferPayees = drafts.some((d) => d.transferAccountId !== null)
+        ? await loadTransferPayees()
+        : new Map<string, string>();
       for (const part of chunk(drafts, CHUNK_SIZE)) {
-        const result = await postChunk(part);
+        const result = await postChunk(part, transferPayees);
         created.push(...result.createdIds);
         duplicates.push(...result.duplicateImportIds);
       }

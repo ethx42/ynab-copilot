@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CategoryAssignment } from "../domain/ynab-draft.js";
+import { normalizeCounterparty } from "../domain/counterparty.js";
 import type { NormalizedTransaction } from "../domain/transaction.js";
 
 // Rules Map (zero tokens): the merchant text the bank prints -> the YNAB payee + category the
@@ -27,7 +28,7 @@ export const CategoryRulesSchema = z
   .superRefine((value, ctx) => {
     const seen = new Set<string>();
     for (const rule of value.rules) {
-      const key = `${rule.match}:${normalize(rule.counterparty)}`;
+      const key = `${rule.match}:${normalizeCounterparty(rule.counterparty)}`;
       if (seen.has(key)) ctx.addIssue({ code: "custom", message: `duplicate rule for ${key}` });
       seen.add(key);
     }
@@ -37,10 +38,6 @@ export type CategoryRules = z.infer<typeof CategoryRulesSchema>;
 
 export const EMPTY_CATEGORY_RULES: CategoryRules = { rules: [] };
 
-function normalize(text: string): string {
-  return text.trim().replace(/\s+/g, " ").toUpperCase();
-}
-
 // Pure and total. An exact rule beats a prefix rule; among prefix rules the longest wins, so
 // the most specific rule decides. Only kinds whose counterparty IS the merchant/payer qualify:
 // transfers, QR payments, withdrawals and card payments keep their own handling.
@@ -49,11 +46,11 @@ export const applyCategoryRule = (
   rules: CategoryRules,
 ): CategoryAssignment | null => {
   if ((tx.kind !== "purchase" && tx.kind !== "inflow") || tx.counterparty === null) return null;
-  const subject = normalize(tx.counterparty);
+  const subject = normalizeCounterparty(tx.counterparty);
 
   let best: { readonly rank: number; readonly assignment: CategoryAssignment } | null = null;
   for (const rule of rules.rules) {
-    const key = normalize(rule.counterparty);
+    const key = normalizeCounterparty(rule.counterparty);
     const rank =
       rule.match === "exact"
         ? subject === key

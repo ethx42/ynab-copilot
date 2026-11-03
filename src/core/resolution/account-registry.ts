@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeCounterparty } from "../domain/counterparty.js";
 import type { NormalizedTransaction } from "../domain/transaction.js";
 
 const Bank = z.enum(["bancolombia", "bancodebogota"]);
@@ -25,8 +26,21 @@ export const AccountRegistrySchema = z
         }),
       )
       .default([]),
+    // Payees that are really the owner's OWN YNAB accounts (template B-12 prints only the bank
+    // name, e.g. "Banco de Bogota"): a payment to them is a transfer, not an expense.
+    transferTargets: z
+      .array(z.object({ counterparty: z.string().min(1), ynabAccountId: z.string().uuid() }))
+      .default([]),
   })
   .superRefine((registry, ctx) => {
+    const targets = new Set<string>();
+    for (const target of registry.transferTargets) {
+      const key = normalizeCounterparty(target.counterparty);
+      if (targets.has(key)) {
+        ctx.addIssue({ code: "custom", message: `duplicate transfer target for ${key}` });
+      }
+      targets.add(key);
+    }
     const seen = new Set<string>();
     for (const entry of registry.entries) {
       for (const last4 of entry.last4) {
@@ -73,4 +87,37 @@ export const resolveAccount = (
   return fallback === undefined
     ? { status: "unresolved", reason: "no_product_fallback" }
     : { status: "resolved", ynabAccountId: fallback.ynabAccountId };
+};
+
+export type TransferTarget =
+  | { readonly status: "none" }
+  | { readonly status: "transfer"; readonly ynabAccountId: string }
+  | { readonly status: "unresolved"; readonly reason: "transfer_target_unknown" };
+
+// Is this outflow really a move between the owner's own accounts? Pure and total.
+// - card_payment (B-5) names the card's last4: it MUST resolve, otherwise a human decides.
+// - payment (B-12) names a payee: a registered own-account payee is a transfer, anything else
+//   is an ordinary expense.
+export const resolveTransferTarget = (
+  tx: NormalizedTransaction,
+  registry: AccountRegistry,
+): TransferTarget => {
+  if (tx.kind === "card_payment") {
+    const { counterAccountLast4: last4 } = tx;
+    const entry =
+      last4 === null
+        ? undefined
+        : registry.entries.find((e) => e.bank === tx.bank && e.last4.includes(last4));
+    return entry === undefined
+      ? { status: "unresolved", reason: "transfer_target_unknown" }
+      : { status: "transfer", ynabAccountId: entry.ynabAccountId };
+  }
+  if (tx.kind === "payment" && tx.counterparty !== null) {
+    const subject = normalizeCounterparty(tx.counterparty);
+    const target = registry.transferTargets.find(
+      (t) => normalizeCounterparty(t.counterparty) === subject,
+    );
+    if (target !== undefined) return { status: "transfer", ynabAccountId: target.ynabAccountId };
+  }
+  return { status: "none" };
 };

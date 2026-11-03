@@ -92,16 +92,38 @@ describe("runIngest", () => {
       email(
         "m2",
         "2026-11-02T14:00:00Z",
-        "Pago de Tarjeta de Credito por $5,659,564 desde cta *1560 a la tarjeta *8139. 02/11/2026 09:00.",
+        "Pago de Tarjeta de Credito por $5,659,564 desde cta *1560 a la tarjeta *2075. 02/11/2026 09:00.",
       ),
     ]);
     const report = await runIngest({ mail, ynab: ynab.port, registry }, "2026-11-01T00:00:00Z");
     expect(ynab.received[0]).toEqual([]);
     expect(report.needsReview.map((r) => r.reason)).toEqual([
       "unknown_last4",
-      "card_payment_needs_transfer",
+      "transfer_target_unknown",
     ]);
     expect(needsAttention(report)).toBe(true);
+  });
+
+  it("writes a card payment email as a transfer draft pointing at the card's account", async () => {
+    const ynab = recordingYnab();
+    const mail = fakeMail([
+      email(
+        "m1",
+        "2026-11-02T14:00:00Z",
+        "Pago de Tarjeta de Credito por $5,659,564 desde cta *1560 a la tarjeta *8139. 02/11/2026 09:00.",
+      ),
+    ]);
+    const report = await runIngest({ mail, ynab: ynab.port, registry }, "2026-11-01T00:00:00Z");
+    expect(ynab.received[0]).toEqual([
+      expect.objectContaining({
+        accountId: MAIN,
+        amountMilliunits: -5659564000,
+        payeeName: null,
+        transferAccountId: VISA,
+        approved: false,
+      }),
+    ]);
+    expect(needsAttention(report)).toBe(false);
   });
 
   it("surfaces unrecognized emails as parse failures and still writes the good ones", async () => {
