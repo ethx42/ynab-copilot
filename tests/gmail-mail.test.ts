@@ -1,0 +1,87 @@
+import { describe, expect, it, vi } from "vitest";
+import { createGmailMailPort, type GmailApi } from "../src/adapters/gmail/gmail-mail.js";
+
+const mime = (parts: string): Buffer =>
+  Buffer.from(
+    [
+      "From: Alertas y Notificaciones <alertasynotificaciones@an.notificacionesbancolombia.com>",
+      "To: santiagov62@gmail.com",
+      "Subject: Alertas y Notificaciones",
+      "MIME-Version: 1.0",
+      parts,
+    ].join("\r\n"),
+  );
+
+const textPart = mime(
+  [
+    "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: quoted-printable",
+    "",
+    "Bancolombia: Compraste COP19.900,00 en APPLE.COM/BILL, el 02/11/2026 a las 08:05. =",
+    "Esta compra esta asociada a T.Cred *8139.",
+  ].join("\r\n"),
+);
+
+const htmlOnlyPart = mime(
+  [
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    "<html><style>p{color:red}</style><body><p>Compraste COP11.852,00 en UBER&nbsp;RIDES con tu T.Cred *8139, el 02/11/2026 a las 09:00.</p></body></html>",
+  ].join("\r\n"),
+);
+
+const fakeApi = (
+  messages: Record<string, { raw: Buffer; internalDateMs: number }>,
+): GmailApi & { queries: string[] } => {
+  const queries: string[] = [];
+  return {
+    queries,
+    listMessageIds: (query) => {
+      queries.push(query);
+      return Promise.resolve(Object.keys(messages));
+    },
+    getRaw: (id) => {
+      const message = messages[id];
+      return message === undefined
+        ? Promise.reject(new Error("missing"))
+        : Promise.resolve(message);
+    },
+  };
+};
+
+describe("Gmail mail port", () => {
+  it("queries only the bank domain after the given instant (epoch seconds)", async () => {
+    const api = fakeApi({});
+    await createGmailMailPort(api).listAlertsSince("2026-11-02T00:00:00Z");
+    expect(api.queries).toEqual(["from:notificacionesbancolombia.com after:1793577600"]);
+  });
+
+  it("decodes quoted-printable text and stamps the Gmail receive time", async () => {
+    const api = fakeApi({ m1: { raw: textPart, internalDateMs: Date.UTC(2026, 10, 2, 13, 5) } });
+    const [alert] = await createGmailMailPort(api).listAlertsSince("2026-11-01T00:00:00Z");
+    expect(alert).toMatchObject({
+      messageId: "m1",
+      receivedAt: "2026-11-02T13:05:00.000Z",
+    });
+    expect(alert?.from).toContain("notificacionesbancolombia.com");
+    expect(alert?.text).toContain("Compraste COP19.900,00 en APPLE.COM/BILL");
+    expect(alert?.text).toContain("asociada a T.Cred *8139");
+  });
+
+  it("derives text from an HTML-only alert (the parser collapses any line wrapping)", async () => {
+    const api = fakeApi({
+      m2: { raw: htmlOnlyPart, internalDateMs: Date.UTC(2026, 10, 2, 14, 0) },
+    });
+    const [alert] = await createGmailMailPort(api).listAlertsSince("2026-11-01T00:00:00Z");
+    expect(alert?.text.replace(/\s+/g, " ")).toBe(
+      "Compraste COP11.852,00 en UBER RIDES con tu T.Cred *8139, el 02/11/2026 a las 09:00.",
+    );
+  });
+
+  it("rejects an invalid since timestamp instead of querying everything", async () => {
+    const api = fakeApi({});
+    const list = vi.spyOn(api, "listMessageIds");
+    await expect(createGmailMailPort(api).listAlertsSince("not-a-date")).rejects.toThrow();
+    expect(list).not.toHaveBeenCalled();
+  });
+});
