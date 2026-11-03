@@ -40,6 +40,11 @@ export const NormalizedTransactionSchema = z.object({
     .nullable(),
   // Gmail message id — lets every YNAB row be traced back to its source email.
   sourceMessageId: z.string().min(1),
+  // Optional stable identity of the transaction itself, for sources where the SAME alert can
+  // reach us as several emails (an SMS forwarded twice by a phone automation). When present it
+  // replaces the message id in the `import_id`, so the repeat is a YNAB duplicate, not a new row.
+  // Bancolombia leaves it unset: one alert is one email there.
+  dedupeKey: z.string().min(1).optional(),
 });
 
 export type AccountRef = z.infer<typeof AccountRefSchema>;

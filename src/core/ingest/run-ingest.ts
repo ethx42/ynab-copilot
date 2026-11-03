@@ -1,7 +1,8 @@
 import { EMPTY_CATEGORY_RULES, type CategoryRules } from "../categorization/category-rules.js";
 import type { NormalizedTransaction } from "../domain/transaction.js";
 import type { YnabTransactionDraft } from "../domain/ynab-draft.js";
-import { parseBancolombia, type ParseFailure } from "../parsers/bancolombia.js";
+import { parseBancoDeBogotaSms } from "../parsers/bancodebogota-sms.js";
+import { parseBancolombia, type ParseFailure, type ParseOutcome } from "../parsers/bancolombia.js";
 import { planTransactions, type PlanItem } from "../planning/plan.js";
 import type { AccountRegistry } from "../resolution/account-registry.js";
 import type { AlertEmail, MailPort } from "../../ports/mail.js";
@@ -12,6 +13,17 @@ import type { YnabPort } from "../../ports/ynab.js";
 // written, a duplicate, a review item, or a parse failure — and the report says which.
 
 export type NeedsReview = Extract<PlanItem, { status: "needs_review" }>;
+
+// The source decides the parser; an exhaustive switch makes a new source a compile error here.
+const parseAlert = (alert: AlertEmail): ParseOutcome => {
+  const input = { messageId: alert.messageId, text: alert.text };
+  switch (alert.source) {
+    case "bancolombia":
+      return parseBancolombia(input);
+    case "bancodebogota_sms":
+      return parseBancoDeBogotaSms(input);
+  }
+};
 
 export type IngestReport = {
   readonly emailsSeen: number;
@@ -67,7 +79,7 @@ export const analyzeAlerts = (
   const parseFailures: ParseFailure[] = [];
   const parsedOk = new Set<string>();
   for (const alert of ordered) {
-    const outcome = parseBancolombia({ messageId: alert.messageId, text: alert.text });
+    const outcome = parseAlert(alert);
     if (outcome.ok) {
       parsed.push(...outcome.value);
       parsedOk.add(alert.messageId);

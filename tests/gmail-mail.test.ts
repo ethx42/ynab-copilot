@@ -117,4 +117,89 @@ describe("Gmail mail port", () => {
     await expect(createGmailMailPort(api).listAlertsSince("not-a-date")).rejects.toThrow();
     expect(list).not.toHaveBeenCalled();
   });
+
+  describe("Banco de Bogota SMS forwarded by the phone", () => {
+    const smsMime = (from: string, body: string): Buffer =>
+      Buffer.from(
+        [
+          `From: ${from}`,
+          "To: santiagov62@gmail.com",
+          "Subject: SMSBDB",
+          "MIME-Version: 1.0",
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          body,
+        ].join("\r\n"),
+      );
+    const SMS =
+      "Banco de Bogota: Tu compra por 7,100 fue aprobada con Tarjeta Crédito 3429 el 02/11/26 17:50:20 en BOLD SA*mi cuate ¿Dudas? Llama a la Servilinea ...";
+
+    // Gmail answers per query: the bank-domain query and the SMS query find different mail.
+    const routedApi = (
+      bank: Record<string, { raw: Buffer; internalDateMs: number }>,
+      sms: Record<string, { raw: Buffer; internalDateMs: number }>,
+    ): GmailApi & { queries: string[] } => {
+      const queries: string[] = [];
+      return {
+        queries,
+        listMessageIds: (query) => {
+          queries.push(query);
+          return Promise.resolve(Object.keys(query.includes("SMSBDB") ? sms : bank));
+        },
+        getRaw: (id) => {
+          const message = bank[id] ?? sms[id];
+          return message === undefined
+            ? Promise.reject(new Error("missing"))
+            : Promise.resolve(message);
+        },
+      };
+    };
+
+    it("does not look for SMS mail unless a sender is configured", async () => {
+      const api = routedApi({}, {});
+      await createGmailMailPort(api).listAlertsSince("2026-11-02T00:00:00Z");
+      expect(api.queries).toHaveLength(1);
+    });
+
+    it("queries the configured sender and subject, and tags the alert as an SMS", async () => {
+      const api = routedApi(
+        { m1: { raw: textPart, internalDateMs: Date.UTC(2026, 10, 2, 13, 5) } },
+        {
+          s1: {
+            raw: smsMime("Santiago <Santiagov62@gmail.com>", SMS),
+            internalDateMs: Date.UTC(2026, 10, 2, 22, 50),
+          },
+        },
+      );
+      const alerts = await createGmailMailPort(api, {
+        smsForwardFrom: ["santiagov62@gmail.com"],
+      }).listAlertsSince("2026-11-02T00:00:00Z");
+
+      expect(api.queries).toEqual([
+        "from:notificacionesbancolombia.com after:1793577600",
+        'from:(santiagov62@gmail.com) subject:"SMSBDB" after:1793577600',
+      ]);
+      expect(alerts.map((a) => [a.messageId, a.source])).toEqual([
+        ["m1", "bancolombia"],
+        ["s1", "bancodebogota_sms"],
+      ]);
+      expect(alerts[1]?.text).toContain("Tu compra por 7,100 fue aprobada");
+    });
+
+    it("rejects mail whose real sender differs, even if the display name matches", async () => {
+      const api = routedApi(
+        {},
+        {
+          spoof: {
+            raw: smsMime("santiagov62@gmail.com <attacker@evil.example>", SMS),
+            internalDateMs: Date.UTC(2026, 10, 2, 22, 50),
+          },
+        },
+      );
+      const alerts = await createGmailMailPort(api, {
+        smsForwardFrom: ["santiagov62@gmail.com"],
+      }).listAlertsSince("2026-11-02T00:00:00Z");
+      expect(alerts).toEqual([]);
+    });
+  });
 });

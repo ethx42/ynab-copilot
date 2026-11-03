@@ -35,6 +35,7 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           ACCOUNT_REGISTRY_JSON: ${{ secrets.ACCOUNT_REGISTRY_JSON }}
           CATEGORY_RULES_JSON: ${{ secrets.CATEGORY_RULES_JSON }}
+          SMS_FORWARD_FROM: ${{ secrets.SMS_FORWARD_FROM }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

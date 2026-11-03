@@ -94,6 +94,25 @@ describe("IngestEnvSchema", () => {
     expect(text).not.toContain("bad topic");
   });
 
+  it("reads SMS_FORWARD_FROM as a normalised address list, off when blank", () => {
+    expect(IngestEnvSchema.parse(validEnv).SMS_FORWARD_FROM).toBeUndefined();
+    expect(IngestEnvSchema.parse({ ...validEnv, SMS_FORWARD_FROM: " " }).SMS_FORWARD_FROM).toBe(
+      undefined,
+    );
+    expect(
+      IngestEnvSchema.parse({
+        ...validEnv,
+        SMS_FORWARD_FROM: " Santiagov62@Gmail.com , me@icloud.com ",
+      }).SMS_FORWARD_FROM,
+    ).toEqual(["santiagov62@gmail.com", "me@icloud.com"]);
+  });
+
+  it("rejects a malformed SMS_FORWARD_FROM without echoing it", () => {
+    const issues = formatIngestEnvIssues({ ...validEnv, SMS_FORWARD_FROM: "not-an-address" });
+    expect(issues?.join("\n")).toContain("SMS_FORWARD_FROM");
+    expect(issues?.join("\n")).not.toContain("not-an-address");
+  });
+
   it("coerces LOOKBACK_HOURS from the string an environment provides", () => {
     expect(IngestEnvSchema.parse({ ...validEnv, LOOKBACK_HOURS: "48" }).LOOKBACK_HOURS).toBe(48);
   });

@@ -94,6 +94,22 @@ export const IngestEnvSchema = z.object({
     blankToUndefined,
     z.string().url().startsWith("https://", "must be an https URL").default("https://ntfy.sh"),
   ),
+  // Banco de Bogotá SMS forwarded by the owner's phone: the address(es) those mails come FROM,
+  // comma separated. Unset = SMS ingest off. It is also the trust anchor: only mail from these
+  // addresses is read as an SMS alert.
+  SMS_FORWARD_FROM: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .transform((raw) =>
+        raw
+          .split(",")
+          .map((address) => address.trim().toLowerCase())
+          .filter((address) => address !== ""),
+      )
+      .pipe(z.array(z.string().email()).min(1).max(5))
+      .optional(),
+  ),
   // Review queue (GitHub issues). Both are provided by GitHub Actions itself.
   GITHUB_TOKEN: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   GITHUB_REPOSITORY: z.preprocess(

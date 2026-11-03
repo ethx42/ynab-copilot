@@ -20,8 +20,11 @@ export const isPipelineImportId = (importId: string): boolean =>
   Object.values(BANK_CODE).some((code) => importId.startsWith(`${code}:`));
 
 export const importIdFor = (tx: NormalizedTransaction, positionInMessage: number): string => {
+  // `dedupeKey` (when the source sets one) stands in for the message id; without it the hashed
+  // string is byte-for-byte what it always was, so existing Bancolombia ids do not change.
+  const origin = tx.dedupeKey ?? tx.sourceMessageId;
   const digest = createHash("sha256")
-    .update(`${tx.bank}|${tx.sourceMessageId}|${String(positionInMessage)}`)
+    .update(`${tx.bank}|${origin}|${String(positionInMessage)}`)
     .digest("hex")
     .slice(0, 32);
   return `${BANK_CODE[tx.bank]}:${digest}`;
