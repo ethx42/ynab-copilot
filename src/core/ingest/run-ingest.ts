@@ -1,3 +1,4 @@
+import type { CategoryRules } from "../categorization/category-rules.js";
 import type { NormalizedTransaction } from "../domain/transaction.js";
 import { parseBancolombia, type ParseFailure } from "../parsers/bancolombia.js";
 import { planTransactions, type PlanItem } from "../planning/plan.js";
@@ -27,6 +28,8 @@ export type IngestDeps = {
   readonly mail: MailPort;
   readonly ynab: YnabPort;
   readonly registry: AccountRegistry;
+  // Optional: without rules every row is written uncategorized.
+  readonly rules?: CategoryRules;
 };
 
 // True when a human must look at something. A clean run (or an empty quiet day) is not loud;
@@ -51,7 +54,7 @@ export const runIngest = async (deps: IngestDeps, sinceIso: string): Promise<Ing
     else parseFailures.push(outcome.error);
   }
 
-  const plan = planTransactions(parsed, deps.registry);
+  const plan = planTransactions(parsed, deps.registry, deps.rules);
   const drafts = plan.flatMap((item) => (item.status === "ready" ? [item.draft] : []));
   const needsReview = plan.flatMap((item) => (item.status === "needs_review" ? [item] : []));
 

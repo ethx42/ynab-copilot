@@ -1,3 +1,8 @@
+import {
+  applyCategoryRule,
+  EMPTY_CATEGORY_RULES,
+  type CategoryRules,
+} from "../categorization/category-rules.js";
 import { assignImportIds } from "../domain/import-id.js";
 import type { NormalizedTransaction } from "../domain/transaction.js";
 import { toDraft, type YnabTransactionDraft } from "../domain/ynab-draft.js";
@@ -17,6 +22,7 @@ export type PlanItem =
 export const planTransactions = (
   txs: readonly NormalizedTransaction[],
   registry: AccountRegistry,
+  rules: CategoryRules = EMPTY_CATEGORY_RULES,
 ): PlanItem[] =>
   assignImportIds(txs).map(({ tx, importId }): PlanItem => {
     // Paying the card from savings is a TRANSFER between two YNAB accounts, not an expense:
@@ -28,5 +34,9 @@ export const planTransactions = (
     if (resolution.status === "unresolved") {
       return { status: "needs_review", tx, importId, reason: resolution.reason };
     }
-    return { status: "ready", draft: toDraft(tx, resolution.ynabAccountId, importId) };
+    const assignment = applyCategoryRule(tx, rules);
+    return {
+      status: "ready",
+      draft: toDraft(tx, resolution.ynabAccountId, importId, assignment),
+    };
   });

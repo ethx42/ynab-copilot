@@ -9,10 +9,18 @@ export type YnabTransactionDraft = {
   // Signed: negative = outflow.
   readonly amountMilliunits: number;
   readonly payeeName: string | null;
+  // Set only by a Rules Map match; null leaves the row uncategorized for the owner.
+  readonly categoryId: string | null;
   readonly memo: string | null;
   readonly importId: string;
   readonly cleared: "cleared";
   readonly approved: false;
+};
+
+// What the Rules Map decided for a transaction: post it under this payee and category.
+export type CategoryAssignment = {
+  readonly payeeName: string;
+  readonly categoryId: string;
 };
 
 const memoFor = (tx: NormalizedTransaction): string | null => {
@@ -51,6 +59,7 @@ export const toDraft = (
   tx: NormalizedTransaction,
   accountId: string,
   importId: string,
+  assignment: CategoryAssignment | null = null,
 ): YnabTransactionDraft => {
   const magnitude = pesosToMilliunits(tx.amountPesos);
   // Purchases and inflows carry the merchant/payer as the payee; transfers and QR payments
@@ -59,7 +68,8 @@ export const toDraft = (
     accountId,
     date: tx.date,
     amountMilliunits: tx.direction === "outflow" ? -magnitude : magnitude,
-    payeeName: payeeFor(tx),
+    payeeName: assignment?.payeeName ?? payeeFor(tx),
+    categoryId: assignment?.categoryId ?? null,
     memo: memoFor(tx),
     importId,
     cleared: "cleared",

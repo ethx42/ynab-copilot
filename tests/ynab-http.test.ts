@@ -11,6 +11,7 @@ const draft = (overrides: Partial<YnabTransactionDraft> = {}): YnabTransactionDr
   date: "2026-11-02",
   amountMilliunits: -217375000,
   payeeName: "AMAZON MKTPLACE PMTS",
+  categoryId: null,
   memo: null,
   importId: "BC:8139:20261102T0800:217375:1",
   cleared: "cleared",
@@ -81,6 +82,21 @@ describe("YNAB HTTP adapter", () => {
     const body = sentBody(fetchImpl) as { transactions: Record<string, unknown>[] };
     expect(body.transactions[0]).not.toHaveProperty("payee_name");
     expect(body.transactions[0]).toHaveProperty("memo", "Transferencia Bancolombia a *75639212378");
+  });
+
+  it("sends category_id only when the draft carries one", async () => {
+    const CATEGORY = "44444444-4444-4444-8444-444444444444";
+    const fetchImpl = fakeFetch(() =>
+      jsonResponse(201, { data: { transaction_ids: ["t1", "t2"], duplicate_import_ids: [] } }),
+    );
+    const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
+    await ynab.createTransactions([
+      draft({ categoryId: CATEGORY, importId: "BC:A" }),
+      draft({ importId: "BC:B" }),
+    ]);
+    const body = sentBody(fetchImpl) as { transactions: Record<string, unknown>[] };
+    expect(body.transactions[0]).toHaveProperty("category_id", CATEGORY);
+    expect(body.transactions[1]).not.toHaveProperty("category_id");
   });
 
   it("reports import_ids YNAB already had (idempotent re-run)", async () => {

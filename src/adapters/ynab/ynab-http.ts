@@ -43,6 +43,7 @@ const toWire = (draft: YnabTransactionDraft): Record<string, unknown> => ({
   date: draft.date,
   amount: draft.amountMilliunits,
   ...(draft.payeeName === null ? {} : { payee_name: draft.payeeName.slice(0, 200) }),
+  ...(draft.categoryId === null ? {} : { category_id: draft.categoryId }),
   ...(draft.memo === null ? {} : { memo: draft.memo.slice(0, 500) }),
   cleared: draft.cleared,
   approved: draft.approved,

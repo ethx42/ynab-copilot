@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assignImportIds } from "../src/core/domain/import-id.js";
 import type { NormalizedTransaction } from "../src/core/domain/transaction.js";
 import { planTransactions } from "../src/core/planning/plan.js";
+import { CategoryRulesSchema } from "../src/core/categorization/category-rules.js";
 import { AccountRegistrySchema, resolveAccount } from "../src/core/resolution/account-registry.js";
 
 const CARD_ACCOUNT = "11111111-1111-4111-8111-111111111111";
@@ -123,6 +124,7 @@ describe("planTransactions", () => {
         date: "2026-11-02",
         amountMilliunits: -217375000,
         payeeName: "AMAZON MKTPLACE PMTS",
+        categoryId: null,
         memo: null,
         importId: expectedImportId,
         cleared: "cleared",
@@ -222,6 +224,38 @@ describe("planTransactions", () => {
       "unknown_last4",
       "card_payment_needs_transfer",
     ]);
+  });
+
+  it("posts under the rule's payee and category when the Rules Map matches", () => {
+    const UBER_CATEGORY = "55555555-5555-4555-8555-555555555555";
+    const rules = CategoryRulesSchema.parse({
+      rules: [
+        { counterparty: "UBER", match: "prefix", payeeName: "Uber", categoryId: UBER_CATEGORY },
+      ],
+    });
+    const [item] = planTransactions([{ ...base, counterparty: "UBER RIDES*DL" }], registry, rules);
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: { payeeName: "Uber", categoryId: UBER_CATEGORY, approved: false },
+    });
+  });
+
+  it("leaves the row uncategorized, with the bank's payee, when no rule matches", () => {
+    const rules = CategoryRulesSchema.parse({
+      rules: [
+        {
+          counterparty: "UBER",
+          match: "prefix",
+          payeeName: "Uber",
+          categoryId: "55555555-5555-4555-8555-555555555555",
+        },
+      ],
+    });
+    const [item] = planTransactions([base], registry, rules);
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: { payeeName: "AMAZON MKTPLACE PMTS", categoryId: null },
+    });
   });
 
   it("returns exactly one plan item per input (nothing is dropped)", () => {
