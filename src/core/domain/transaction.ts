@@ -12,7 +12,18 @@ export const AccountRefSchema = z.discriminatedUnion("kind", [
 export const NormalizedTransactionSchema = z.object({
   bank: z.enum(["bancolombia", "bancodebogota"]),
   template: z.string().min(1),
-  kind: z.enum(["purchase", "qr_payment", "transfer_out", "card_payment", "inflow", "withdrawal"]),
+  kind: z.enum([
+    "purchase",
+    "qr_payment",
+    "transfer_out",
+    // Paying a card from savings with the card's own digits printed (B-5): always a transfer.
+    "card_payment",
+    // "Pagaste $X a <payee> desde tu producto ####" (B-12): a transfer when the payee is one of
+    // the owner's own accounts (registry `transferTargets`), an ordinary expense otherwise.
+    "payment",
+    "inflow",
+    "withdrawal",
+  ]),
   direction: z.enum(["outflow", "inflow"]),
   // Whole pesos, strictly positive; the sign lives in `direction`.
   amountPesos: z.number().int().positive(),

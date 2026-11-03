@@ -261,6 +261,42 @@ describe("Bancolombia parser — llave transfers and corresponsal cash (2026-10-
   });
 });
 
+describe("Bancolombia parser — B-12 payment to a payee (2026-11-02 shape)", () => {
+  const sentence =
+    "¡Listo! Todo salió bien con tus movimientos Bancolombia: Pagaste $2000000.00 a Banco de Bogota desde tu producto 1560 el 02/11/2026 21:01:23. ¿Dudas? Llamanos al 6045109095. Estamos cerca";
+
+  it("parses seconds, the unseparated amount and the asterisk-less product digits", () => {
+    expect(parseOk(sentence)).toEqual([
+      expect.objectContaining({
+        template: "B-12",
+        kind: "payment",
+        direction: "outflow",
+        amountPesos: 2000000,
+        date: "2026-11-02",
+        time: "21:01",
+        account: { kind: "last4", last4: "1560" },
+        counterparty: "Banco de Bogota",
+        counterAccountLast4: null,
+      }),
+    ]);
+  });
+
+  it("does not confuse a QR payment (lowercase 'pagaste ... por codigo QR') with B-12", () => {
+    const [tx] = parseOk(
+      "SANTIAGO, pagaste $80,000.00 por codigo QR desde tu cuenta *1560 a la llave 0090997376 el 29/05/2026 a las 19:18.",
+    );
+    expect(tx).toMatchObject({ template: "B-3", kind: "qr_payment" });
+  });
+
+  it("fails loud on a 'Pagaste' sentence with a wording it does not know", () => {
+    const result = parseBancolombia({
+      messageId: "m1",
+      text: "Bancolombia: Pagaste $50000.00 a Claro con tu tarjeta debito el 02/11/2026.",
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "unrecognized_format" } });
+  });
+});
+
 describe("Bancolombia parser — sentence boundaries and unmatched text", () => {
   it("never merges a malformed B-7 sentence with the next valid one (it fails loudly)", () => {
     // Without the sentence-boundary guard this parsed as ONE withdrawal taking the FIRST amount

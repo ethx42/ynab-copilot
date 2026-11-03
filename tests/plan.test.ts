@@ -8,6 +8,7 @@ import { AccountRegistrySchema, resolveAccount } from "../src/core/resolution/ac
 const CARD_ACCOUNT = "11111111-1111-4111-8111-111111111111";
 const MAIN_ACCOUNT = "22222222-2222-4222-8222-222222222222";
 const SAVINGS_ACCOUNT = "33333333-3333-4333-8333-333333333333";
+const BOGOTA_ACCOUNT = "44444444-4444-4444-8444-444444444444";
 
 const registry = AccountRegistrySchema.parse({
   entries: [
@@ -15,6 +16,7 @@ const registry = AccountRegistrySchema.parse({
     { bank: "bancolombia", last4: ["1560"], ynabAccountId: MAIN_ACCOUNT },
   ],
   productFallbacks: [{ bank: "bancolombia", product: "savings", ynabAccountId: SAVINGS_ACCOUNT }],
+  transferTargets: [{ counterparty: "Banco de Bogota", ynabAccountId: BOGOTA_ACCOUNT }],
 });
 
 const base: NormalizedTransaction = {
@@ -125,6 +127,7 @@ describe("planTransactions", () => {
         amountMilliunits: -217375000,
         payeeName: "AMAZON MKTPLACE PMTS",
         categoryId: null,
+        transferAccountId: null,
         memo: null,
         importId: expectedImportId,
         cleared: "cleared",
@@ -205,7 +208,108 @@ describe("planTransactions", () => {
     });
   });
 
-  it("routes unknown cards and card payments to review instead of writing", () => {
+  it("posts a card payment as a transfer to the card's own YNAB account (B-5)", () => {
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-5",
+          kind: "card_payment",
+          account: { kind: "last4", last4: "1560" },
+          counterAccountLast4: "8139",
+          counterparty: null,
+        },
+      ],
+      registry,
+    );
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: {
+        accountId: MAIN_ACCOUNT,
+        amountMilliunits: -217375000,
+        payeeName: null,
+        categoryId: null,
+        transferAccountId: CARD_ACCOUNT,
+        approved: false,
+      },
+    });
+  });
+
+  it("posts 'Pagaste ... a Banco de Bogota' as a transfer, matching the payee loosely (B-12)", () => {
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-12",
+          kind: "payment",
+          account: { kind: "last4", last4: "1560" },
+          counterparty: "  BANCO  DE bogota ",
+          amountPesos: 2000000,
+        },
+      ],
+      registry,
+    );
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: {
+        accountId: MAIN_ACCOUNT,
+        amountMilliunits: -2000000000,
+        payeeName: null,
+        transferAccountId: BOGOTA_ACCOUNT,
+      },
+    });
+  });
+
+  it("keeps a 'Pagaste' to any other payee an ordinary expense under that payee (B-12)", () => {
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-12",
+          kind: "payment",
+          account: { kind: "last4", last4: "1560" },
+          counterparty: "Claro",
+        },
+      ],
+      registry,
+    );
+    expect(item).toMatchObject({
+      status: "ready",
+      draft: { payeeName: "Claro", transferAccountId: null },
+    });
+  });
+
+  it("never turns a payment into a transfer from a card to itself", () => {
+    const [item] = planTransactions(
+      [
+        {
+          ...base,
+          template: "B-12",
+          kind: "payment",
+          account: { kind: "last4", last4: "1560" },
+          counterparty: "Banco de Bogota",
+        },
+      ],
+      AccountRegistrySchema.parse({
+        entries: [{ bank: "bancolombia", last4: ["1560"], ynabAccountId: MAIN_ACCOUNT }],
+        transferTargets: [{ counterparty: "Banco de Bogota", ynabAccountId: MAIN_ACCOUNT }],
+      }),
+    );
+    expect(item).toMatchObject({ status: "needs_review", reason: "transfer_target_unknown" });
+  });
+
+  it("rejects duplicate transfer targets at load time", () => {
+    const parsed = AccountRegistrySchema.safeParse({
+      entries: [],
+      transferTargets: [
+        { counterparty: "Banco de Bogota", ynabAccountId: MAIN_ACCOUNT },
+        { counterparty: " BANCO DE BOGOTA", ynabAccountId: CARD_ACCOUNT },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("routes unknown cards and card payments to an unmapped card to review", () => {
     const items = planTransactions(
       [
         { ...base, account: { kind: "last4", last4: "9999" } },
@@ -222,7 +326,7 @@ describe("planTransactions", () => {
     );
     expect(items.map((i) => (i.status === "needs_review" ? i.reason : i.status))).toEqual([
       "unknown_last4",
-      "card_payment_needs_transfer",
+      "transfer_target_unknown",
     ]);
   });
 

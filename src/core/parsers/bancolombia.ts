@@ -8,7 +8,7 @@ import {
 } from "../domain/transaction.js";
 
 // Deterministic (zero-token) parser for Bancolombia notification text. One entry per
-// template catalogued in tests/fixtures/MANIFEST.md (B-1 .. B-5) plus B-6 .. B-11, seen in live
+// template catalogued in tests/fixtures/MANIFEST.md (B-1 .. B-5) plus B-6 .. B-12, seen in live
 // alerts on 2026-10-31 / 2026-11-02 (own-account and key transfers, ATM and corresponsal cash).
 // Anything that matches no template is reported as `unrecognized_format` — NEVER dropped.
 
@@ -186,6 +186,20 @@ const TEMPLATES: readonly TemplateSpec[] = [
     amountStyle: "us",
     savingsProduct: true,
   },
+  {
+    // B-12: `Pagaste $2000000.00 a Banco de Bogota desde tu producto 1560 el 02/11/2026 21:01:23.`
+    // Seconds are printed here; the amount has no thousands separators; the account digits come
+    // WITHOUT an asterisk. Whether the payee is one of the owner's own cards is decided by the
+    // registry, never by this parser.
+    template: "B-12",
+    pattern: new RegExp(
+      String.raw`Pagaste (?<amt>\$[\d.,]+) a (?<cp>(?:(?!Pagaste ).)+?) desde tu producto (?<last4>\d{4}) el ${DATE} ${TIME}(?::\d{2})?`,
+      "g",
+    ),
+    kind: "payment",
+    direction: "outflow",
+    amountStyle: "us",
+  },
 ];
 
 // Emails wrap lines mid-sentence (`en\r\nUBER RIDES`) and use non-breaking spaces.
@@ -239,7 +253,7 @@ const buildTransaction = (
 // The opening of every transaction sentence we know, followed by a currency token. Used to spot
 // transaction text that NO template matched (a new wording sitting next to a known one).
 const TRANSACTION_OPENING =
-  /(?:Compraste|Retiraste|[Tt]ransferiste|pagaste|Recibiste un pago por|Transferencia por|Pago de Tarjeta de Credito por) (?:[A-Z]{3}|\$)|[Rr]ecibiste una transferencia (?:por \$|de )/;
+  /(?:Compraste|Retiraste|[Tt]ransferiste|[Pp]agaste|Recibiste un pago por|Transferencia por|Pago de Tarjeta de Credito por) (?:[A-Z]{3}|\$)|[Rr]ecibiste una transferencia (?:por \$|de )/;
 
 const excerptFrom = (text: string, index: number): string => text.slice(index, index + 160);
 

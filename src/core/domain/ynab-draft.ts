@@ -11,6 +11,9 @@ export type YnabTransactionDraft = {
   readonly payeeName: string | null;
   // Set only by a Rules Map match; null leaves the row uncategorized for the owner.
   readonly categoryId: string | null;
+  // Set for moves between the owner's own accounts: the YNAB account on the other side. The
+  // adapter turns it into that account's transfer payee, so YNAB creates both legs.
+  readonly transferAccountId: string | null;
   readonly memo: string | null;
   readonly importId: string;
   readonly cleared: "cleared";
@@ -32,6 +35,7 @@ const memoFor = (tx: NormalizedTransaction): string | null => {
     case "purchase":
     case "inflow":
     case "card_payment":
+    case "payment":
     case "withdrawal":
       return null;
   }
@@ -45,6 +49,7 @@ const payeeFor = (tx: NormalizedTransaction): string | null => {
   switch (tx.kind) {
     case "purchase":
     case "inflow":
+    case "payment":
       return tx.counterparty;
     case "withdrawal":
       return CASH_PAYEE;
@@ -60,6 +65,7 @@ export const toDraft = (
   accountId: string,
   importId: string,
   assignment: CategoryAssignment | null = null,
+  transferAccountId: string | null = null,
 ): YnabTransactionDraft => {
   const magnitude = pesosToMilliunits(tx.amountPesos);
   // Purchases and inflows carry the merchant/payer as the payee; transfers and QR payments
@@ -68,8 +74,10 @@ export const toDraft = (
     accountId,
     date: tx.date,
     amountMilliunits: tx.direction === "outflow" ? -magnitude : magnitude,
-    payeeName: assignment?.payeeName ?? payeeFor(tx),
-    categoryId: assignment?.categoryId ?? null,
+    // A transfer is identified by its counterpart account, not by a payee name or a category.
+    payeeName: transferAccountId === null ? (assignment?.payeeName ?? payeeFor(tx)) : null,
+    categoryId: transferAccountId === null ? (assignment?.categoryId ?? null) : null,
+    transferAccountId,
     memo: memoFor(tx),
     importId,
     cleared: "cleared",
