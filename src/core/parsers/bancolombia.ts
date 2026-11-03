@@ -8,8 +8,8 @@ import {
 } from "../domain/transaction.js";
 
 // Deterministic (zero-token) parser for Bancolombia notification text. One entry per
-// template catalogued in tests/fixtures/MANIFEST.md (B-1 .. B-5) plus B-6, seen in a live
-// alert on 2026-11-02 ("Transferiste ... desde tu cuenta *1560 a la cuenta *...").
+// template catalogued in tests/fixtures/MANIFEST.md (B-1 .. B-5) plus B-6 .. B-11, seen in live
+// alerts on 2026-10-31 / 2026-11-02 (own-account and key transfers, ATM and corresponsal cash).
 // Anything that matches no template is reported as `unrecognized_format` — NEVER dropped.
 
 export type ParseInput = {
@@ -37,11 +37,12 @@ type TemplateSpec = {
   readonly kind: NormalizedTransaction["kind"];
   readonly direction: NormalizedTransaction["direction"];
   readonly amountStyle: "co" | "us";
-  // True for B-2, which names the product type ("AHORROS") instead of trailing digits.
+  // True for B-2 (names the product type "AHORROS") and B-11 (names nothing): no trailing digits.
   readonly savingsProduct?: true;
 };
 
-const DATE = String.raw`(?<date>\d{2}\/\d{2}\/\d{4})`;
+// Four-digit years in the card alerts, two-digit ones (`31/10/26`) in the newer llave alerts.
+const DATE = String.raw`(?<date>\d{2}\/\d{2}\/(?:\d{4}|\d{2}))`;
 const TIME = String.raw`(?<time>\d{2}:\d{2})`;
 // Merchant text may not run across another "Compraste ..." sentence.
 const MERCHANT = String.raw`(?<cp>(?:(?!Compraste ).)+?)`;
@@ -138,6 +139,53 @@ const TEMPLATES: readonly TemplateSpec[] = [
     direction: "outflow",
     amountStyle: "co",
   },
+  {
+    // B-8: `SANTIAGO, recibiste una transferencia de ACME S.A.S por $77,950.00 en tu cuenta *1560 conectada a la llave 80854066 el 31/10/26 a las 09:20.`
+    template: "B-8",
+    pattern: new RegExp(
+      String.raw`recibiste una transferencia de (?<cp>(?:(?!recibiste una transferencia ).)+?) por (?<amt>\$[\d.,]+) en tu cuenta \*{1,2}(?<last4>\d{4}) conectada a la llave \S+ el ${DATE} a las ${TIME}`,
+      "g",
+    ),
+    kind: "inflow",
+    direction: "inflow",
+    amountStyle: "us",
+  },
+  {
+    // B-9: `Recibiste una transferencia por $300,000 de JUAN PEREZ en tu cuenta **1560, el 31/10/2026 a las 11:52.`
+    template: "B-9",
+    pattern: new RegExp(
+      String.raw`Recibiste una transferencia por (?<amt>\$[\d.,]+) de (?<cp>(?:(?!Recibiste una transferencia ).)+?) en tu cuenta \*{1,2}(?<last4>\d{4}), el ${DATE} a las ${TIME}`,
+      "g",
+    ),
+    kind: "inflow",
+    direction: "inflow",
+    amountStyle: "us",
+  },
+  {
+    // B-10: `SANTIAGO, transferiste $30,000.00 a la llave @alias desde tu cuenta *1560 a MARIA PEREZ el 31/10/26 a las 15:12.`
+    template: "B-10",
+    pattern: new RegExp(
+      String.raw`transferiste (?<amt>\$[\d.,]+) a la llave \S+ desde tu cuenta \*(?<last4>\d{4}) a (?<cp>(?:(?!transferiste ).)+?) el ${DATE} a las ${TIME}`,
+      "g",
+    ),
+    kind: "transfer_out",
+    direction: "outflow",
+    amountStyle: "us",
+  },
+  {
+    // B-11: `Retiraste $500,000 en nuestro corresponsal BARRIO CENTRO SALENTO 3 en SALENTO, el 31/10/26 a las 15:56.`
+    // The alert prints NO account digits: it is resolved through the savings product fallback
+    // (the only Bancolombia deposit account). The row lands unapproved, so a wrong guess is visible.
+    template: "B-11",
+    pattern: new RegExp(
+      String.raw`Retiraste (?<amt>\$[\d.,]+) en nuestro corresponsal (?<cp>(?:(?!Retiraste ).)+?), el ${DATE} a las ${TIME}`,
+      "g",
+    ),
+    kind: "withdrawal",
+    direction: "outflow",
+    amountStyle: "us",
+    savingsProduct: true,
+  },
 ];
 
 // Emails wrap lines mid-sentence (`en\r\nUBER RIDES`) and use non-breaking spaces.
@@ -191,7 +239,7 @@ const buildTransaction = (
 // The opening of every transaction sentence we know, followed by a currency token. Used to spot
 // transaction text that NO template matched (a new wording sitting next to a known one).
 const TRANSACTION_OPENING =
-  /(?:Compraste|Retiraste|Transferiste|pagaste|Recibiste un pago por|Transferencia por|Pago de Tarjeta de Credito por) (?:[A-Z]{3}|\$)/;
+  /(?:Compraste|Retiraste|[Tt]ransferiste|pagaste|Recibiste un pago por|Transferencia por|Pago de Tarjeta de Credito por) (?:[A-Z]{3}|\$)|[Rr]ecibiste una transferencia (?:por \$|de )/;
 
 const excerptFrom = (text: string, index: number): string => text.slice(index, index + 160);
 

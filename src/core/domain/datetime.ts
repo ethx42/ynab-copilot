@@ -2,19 +2,20 @@ import { err, ok, type Result } from "./result.js";
 
 export type DateTimeError = { readonly code: "invalid_datetime"; readonly raw: string };
 
-const DMY = /^(?<d>\d{2})\/(?<m>\d{2})\/(?<y>\d{4})$/;
+const DMY = /^(?<d>\d{2})\/(?<m>\d{2})\/(?<y>\d{4}|\d{2})$/;
 const HM = /^(?<h>\d{2}):(?<min>\d{2})$/;
 
-// `DD/MM/YYYY` (as printed by the bank, local Colombia time) -> `YYYY-MM-DD`.
-// Rejects impossible dates (31/02) instead of letting them roll over.
+// `DD/MM/YYYY` or `DD/MM/YY` (as printed by the bank, local Colombia time) -> `YYYY-MM-DD`.
+// Two-digit years are 20YY. Rejects impossible dates (31/02) instead of letting them roll over.
 export const parseDmyDate = (raw: string): Result<string, DateTimeError> => {
   const g = DMY.exec(raw)?.groups;
   const d = g?.["d"];
   const m = g?.["m"];
-  const y = g?.["y"];
-  if (d === undefined || m === undefined || y === undefined) {
+  const yRaw = g?.["y"];
+  if (d === undefined || m === undefined || yRaw === undefined) {
     return err({ code: "invalid_datetime", raw });
   }
+  const y = yRaw.length === 2 ? `20${yRaw}` : yRaw;
   const probe = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
   const valid =
     probe.getUTCFullYear() === Number(y) &&
