@@ -30,6 +30,25 @@ const htmlOnlyPart = mime(
   ].join("\r\n"),
 );
 
+// The shape Bancolombia really sends: multipart/alternative holding ONLY a text/html part, with a
+// tracking pixel first, entities, and several table cells. mailparser leaves `text` empty here.
+const multipartHtmlOnly = mime(
+  [
+    'Content-Type: multipart/alternative; boundary="b1"',
+    "",
+    "--b1",
+    "Content-Type: text/html; charset=UTF-8",
+    "",
+    "<!DOCTYPE html> <html> <head> <title></title> <style>td{color:red}</style> </head> <body>" +
+      '<img alt="" src="https://tracking.example/open/abc" /> <!-- Fluid Grid Master -->' +
+      "<table><tbody><tr><td>Todo sali&oacute; bien con tus movimientos</td></tr>" +
+      "<tr><td>&nbsp;</td></tr><tr><td>Bancolombia: Compraste COP79.200,00 en BOLD SA*mi cuate con tu T.Cred *8139, el 02/11/2026 a las 16:16. Si tienes dudas, encuentranos aqui: 6045109095.</td></tr></tbody></table>" +
+      "</body></html>",
+    "--b1--",
+    "",
+  ].join("\r\n"),
+);
+
 const fakeApi = (
   messages: Record<string, { raw: Buffer; internalDateMs: number }>,
 ): GmailApi & { queries: string[] } => {
@@ -76,6 +95,20 @@ describe("Gmail mail port", () => {
     expect(alert?.text.replace(/\s+/g, " ")).toBe(
       "Compraste COP11.852,00 en UBER RIDES con tu T.Cred *8139, el 02/11/2026 a las 09:00.",
     );
+  });
+
+  it("derives text from a multipart/alternative alert that carries only an HTML part", async () => {
+    const api = fakeApi({
+      m3: { raw: multipartHtmlOnly, internalDateMs: Date.UTC(2026, 10, 2, 21, 16) },
+    });
+    const [alert] = await createGmailMailPort(api).listAlertsSince("2026-11-01T00:00:00Z");
+    const text = alert?.text.replace(/\s+/g, " ") ?? "";
+    expect(text).toContain(
+      "Compraste COP79.200,00 en BOLD SA*mi cuate con tu T.Cred *8139, el 02/11/2026 a las 16:16.",
+    );
+    expect(text).toContain("salió bien");
+    expect(text).not.toContain("color:red");
+    expect(text).not.toContain("tracking.example");
   });
 
   it("rejects an invalid since timestamp instead of querying everything", async () => {

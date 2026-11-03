@@ -41,6 +41,7 @@
     "@googleapis/gmail": "^17.0.0",
     "google-auth-library": "^10.5.0",
     "mailparser": "^3.14.1",
+    "node-html-parser": "^7.1.0",
     "zod": "^4.4.3"
   }
 }
