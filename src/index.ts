@@ -28,7 +28,10 @@ const main = async (): Promise<number> => {
   const ynab = createYnabHttpAdapter({ accessToken: env.YNAB_PAT, budgetId: env.YNAB_BUDGET_ID });
 
   const since = new Date(Date.now() - env.LOOKBACK_HOURS * HOUR_MS).toISOString();
-  const report = await runIngest({ mail, ynab, registry: env.ACCOUNT_REGISTRY_JSON }, since);
+  const report = await runIngest(
+    { mail, ynab, registry: env.ACCOUNT_REGISTRY_JSON, rules: env.CATEGORY_RULES_JSON },
+    since,
+  );
 
   console.log(
     `ingest: ${String(report.emailsSeen)} emails, ${String(report.transactionsParsed)} transactions, ` +

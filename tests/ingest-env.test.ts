@@ -22,6 +22,36 @@ describe("IngestEnvSchema", () => {
     expect(env.LOOKBACK_HOURS).toBe(72);
   });
 
+  it("treats an unset or empty CATEGORY_RULES_JSON as no rules", () => {
+    expect(IngestEnvSchema.parse(validEnv).CATEGORY_RULES_JSON.rules).toEqual([]);
+    expect(
+      IngestEnvSchema.parse({ ...validEnv, CATEGORY_RULES_JSON: "" }).CATEGORY_RULES_JSON.rules,
+    ).toEqual([]);
+  });
+
+  it("parses CATEGORY_RULES_JSON and rejects bad rules without echoing ids", () => {
+    const CATEGORY = "44444444-4444-4444-8444-444444444444";
+    const good = IngestEnvSchema.parse({
+      ...validEnv,
+      CATEGORY_RULES_JSON: JSON.stringify({
+        rules: [{ counterparty: "UBER", match: "prefix", payeeName: "Uber", categoryId: CATEGORY }],
+      }),
+    });
+    expect(good.CATEGORY_RULES_JSON.rules[0]?.payeeName).toBe("Uber");
+
+    const badId = formatIngestEnvIssues({
+      ...validEnv,
+      CATEGORY_RULES_JSON: JSON.stringify({
+        rules: [{ counterparty: "UBER", payeeName: "Uber", categoryId: "not-a-uuid" }],
+      }),
+    });
+    expect(badId?.join("\n")).toContain("CATEGORY_RULES_JSON does not match the rules schema");
+    expect(badId?.join("\n")).not.toContain("not-a-uuid");
+
+    const notJson = formatIngestEnvIssues({ ...validEnv, CATEGORY_RULES_JSON: "{oops" });
+    expect(notJson).toEqual(["CATEGORY_RULES_JSON: CATEGORY_RULES_JSON is not valid JSON"]);
+  });
+
   it("coerces LOOKBACK_HOURS from the string an environment provides", () => {
     expect(IngestEnvSchema.parse({ ...validEnv, LOOKBACK_HOURS: "48" }).LOOKBACK_HOURS).toBe(48);
   });
