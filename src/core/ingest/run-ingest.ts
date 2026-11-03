@@ -1,9 +1,10 @@
-import type { CategoryRules } from "../categorization/category-rules.js";
+import { EMPTY_CATEGORY_RULES, type CategoryRules } from "../categorization/category-rules.js";
 import type { NormalizedTransaction } from "../domain/transaction.js";
+import type { YnabTransactionDraft } from "../domain/ynab-draft.js";
 import { parseBancolombia, type ParseFailure } from "../parsers/bancolombia.js";
 import { planTransactions, type PlanItem } from "../planning/plan.js";
 import type { AccountRegistry } from "../resolution/account-registry.js";
-import type { MailPort } from "../../ports/mail.js";
+import type { AlertEmail, MailPort } from "../../ports/mail.js";
 import type { YnabPort } from "../../ports/ynab.js";
 
 // The whole unattended job as one use case over ports: read alerts -> parse -> plan -> write.
@@ -22,6 +23,10 @@ export type IngestReport = {
   readonly needsReview: readonly NeedsReview[];
   // Emails whose wording matched no known template, or had an invalid field.
   readonly parseFailures: readonly ParseFailure[];
+  // Emails that parsed AND whose every transaction was written: the only ones whose review
+  // tickets may be closed automatically (an email that merely aged out of the window is not
+  // resolved).
+  readonly handledMessageIds: readonly string[];
 };
 
 export type IngestDeps = {
@@ -37,9 +42,21 @@ export type IngestDeps = {
 export const needsAttention = (report: IngestReport): boolean =>
   report.needsReview.length > 0 || report.parseFailures.length > 0;
 
-export const runIngest = async (deps: IngestDeps, sinceIso: string): Promise<IngestReport> => {
-  const alerts = await deps.mail.listAlertsSince(sinceIso);
+export type Analysis = {
+  readonly parsed: readonly NormalizedTransaction[];
+  readonly drafts: readonly YnabTransactionDraft[];
+  readonly needsReview: readonly NeedsReview[];
+  readonly parseFailures: readonly ParseFailure[];
+  readonly handledMessageIds: readonly string[];
+};
 
+// Everything the job decides, with no I/O: shared by the hourly ingest (which then writes) and
+// the daily digest (which only reports).
+export const analyzeAlerts = (
+  alerts: readonly AlertEmail[],
+  registry: AccountRegistry,
+  rules: CategoryRules = EMPTY_CATEGORY_RULES,
+): Analysis => {
   // Chronological order keeps the written batch (and the report) deterministic. import ids no
   // longer depend on it: they derive from the email itself.
   const ordered = [...alerts].sort(
@@ -48,25 +65,37 @@ export const runIngest = async (deps: IngestDeps, sinceIso: string): Promise<Ing
 
   const parsed: NormalizedTransaction[] = [];
   const parseFailures: ParseFailure[] = [];
+  const parsedOk = new Set<string>();
   for (const alert of ordered) {
     const outcome = parseBancolombia({ messageId: alert.messageId, text: alert.text });
-    if (outcome.ok) parsed.push(...outcome.value);
-    else parseFailures.push(outcome.error);
+    if (outcome.ok) {
+      parsed.push(...outcome.value);
+      parsedOk.add(alert.messageId);
+    } else parseFailures.push(outcome.error);
   }
 
-  const plan = planTransactions(parsed, deps.registry, deps.rules);
+  const plan = planTransactions(parsed, registry, rules);
   const drafts = plan.flatMap((item) => (item.status === "ready" ? [item.draft] : []));
   const needsReview = plan.flatMap((item) => (item.status === "needs_review" ? [item] : []));
+  const reviewed = new Set(needsReview.map((item) => item.tx.sourceMessageId));
+  const handledMessageIds = [...parsedOk].filter((id) => !reviewed.has(id));
+  return { parsed, drafts, needsReview, parseFailures, handledMessageIds };
+};
+
+export const runIngest = async (deps: IngestDeps, sinceIso: string): Promise<IngestReport> => {
+  const alerts = await deps.mail.listAlertsSince(sinceIso);
+  const analysis = analyzeAlerts(alerts, deps.registry, deps.rules);
 
   // Throws on any YNAB failure: a failed write must fail the run, never look like success.
-  const result = await deps.ynab.createTransactions(drafts);
+  const result = await deps.ynab.createTransactions(analysis.drafts);
 
   return {
     emailsSeen: alerts.length,
-    transactionsParsed: parsed.length,
+    transactionsParsed: analysis.parsed.length,
     created: result.createdIds.length,
     duplicates: result.duplicateImportIds.length,
-    needsReview,
-    parseFailures,
+    needsReview: analysis.needsReview,
+    parseFailures: analysis.parseFailures,
+    handledMessageIds: analysis.handledMessageIds,
   };
 };

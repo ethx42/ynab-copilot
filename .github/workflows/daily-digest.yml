@@ -1,0 +1,40 @@
+# Daily digest: one push a day (07:07 America/Bogota) with the last 24 hours at a glance.
+# If this push stops arriving, the system itself needs a look. Read-only: writes nothing to YNAB.
+name: daily-digest
+
+on:
+  schedule:
+    - cron: "7 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: daily-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run digest
+        env:
+          YNAB_PAT: ${{ secrets.YNAB_PAT }}
+          YNAB_BUDGET_ID: ${{ secrets.YNAB_BUDGET_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          ACCOUNT_REGISTRY_JSON: ${{ secrets.ACCOUNT_REGISTRY_JSON }}
+          CATEGORY_RULES_JSON: ${{ secrets.CATEGORY_RULES_JSON }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
