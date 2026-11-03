@@ -44,6 +44,9 @@ Still needed for a complete Phase-0 corpus — corpus-collection follow-up, NOT 
 - [ ] Raw **`.eml`/HTML** exports (not PDF) — true fixtures for parser unit tests. PDFs catalogued in
   CORPUS-FINDINGS.md; only one raw `.eml` exists today (`bancolombia-cc-purchase-RAW.eml`).
 
-Banco de Bogotá everyday alerts arrive as **SMS** (shortcode 85264) forwarded to Gmail; the
-SMS→email forwarding wrapper format is still undecided (Phase-0 blocker for the BdB adapter). BdB is
-a deferred fast-follow, so the corpus is intentionally Bancolombia-heavy today.
+Banco de Bogotá everyday alerts arrive as **SMS** (shortcode 85264). The owner's iPhone forwards
+each one to Gmail (Shortcuts automation, subject `SMSBDB`, sender allow-listed through
+`SMS_FORWARD_FROM`); the body is the SMS text. `bancodebogota/bancodebogota-sms.txt` holds real
+samples: approved card purchases (parsed as `BB-SMS-1`), refused purchases and Apple Pay
+messages (recognised, nothing written). Still unseen: SMS for payments received, withdrawals,
+transfers and reversals — those fail loudly (`unrecognized_format`) until a sample exists.

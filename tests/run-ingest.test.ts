@@ -17,6 +17,7 @@ const registry = AccountRegistrySchema.parse({
 
 const email = (messageId: string, receivedAt: string, text: string): AlertEmail => ({
   messageId,
+  source: "bancolombia",
   receivedAt,
   from: "alertasynotificaciones@an.notificacionesbancolombia.com",
   text,
@@ -175,5 +176,85 @@ describe("runIngest", () => {
     );
     expect(report).toMatchObject({ emailsSeen: 0, created: 0 });
     expect(needsAttention(report)).toBe(false);
+  });
+});
+
+describe("runIngest with Banco de Bogota SMS", () => {
+  const SIGNATURE = "33333333-3333-4333-8333-333333333333";
+  const smsRegistry = AccountRegistrySchema.parse({
+    entries: [{ bank: "bancodebogota", last4: ["3429"], ynabAccountId: SIGNATURE }],
+  });
+  const sms = (messageId: string, receivedAt: string, text: string): AlertEmail => ({
+    messageId,
+    source: "bancodebogota_sms",
+    receivedAt,
+    from: "santiagov62@gmail.com",
+    text,
+  });
+  const PURCHASE =
+    "Banco de Bogota: Tu compra por 7,100 fue aprobada con Tarjeta Crédito 3429 el 02/11/26 17:50:20 en BOLD SA*mi cuate ¿Dudas? Llama a la Servilinea ...";
+  const REFUSED =
+    "Banco de Bogota: Tu compra por 284,760 fue RECHAZADA por motivo de seguridad deTarjeta Crédito 4513 el 04/10/26 07:52:55 en EXPERIAN COLOMBIA ¿Dudas? Llama a la Servilinea ...";
+
+  it("writes an approved SMS purchase to the card's account, unapproved, as a BB import", async () => {
+    const ynab = recordingYnab();
+    const mail = fakeMail([sms("s1", "2026-11-02T22:50:00Z", PURCHASE)]);
+    const report = await runIngest(
+      { mail, ynab: ynab.port, registry: smsRegistry },
+      "2026-11-01T00:00:00Z",
+    );
+    expect(ynab.received[0]).toEqual([
+      expect.objectContaining({
+        accountId: SIGNATURE,
+        date: "2026-11-02",
+        amountMilliunits: -7100000,
+        payeeName: "BOLD SA*mi cuate",
+        approved: false,
+        importId: expect.stringMatching(/^BB:[0-9a-f]{32}$/) as unknown,
+      }),
+    ]);
+    expect(report).toMatchObject({ created: 1, needsReview: [], parseFailures: [] });
+    expect(report.handledMessageIds).toEqual(["s1"]);
+  });
+
+  it("treats a refused purchase as handled: nothing written, nothing to review", async () => {
+    const ynab = recordingYnab();
+    const mail = fakeMail([sms("s2", "2026-11-02T22:55:00Z", REFUSED)]);
+    const report = await runIngest(
+      { mail, ynab: ynab.port, registry: smsRegistry },
+      "2026-11-01T00:00:00Z",
+    );
+    expect(ynab.received[0]).toEqual([]);
+    expect(report).toMatchObject({ emailsSeen: 1, transactionsParsed: 0, created: 0 });
+    expect(report.handledMessageIds).toEqual(["s2"]);
+    expect(needsAttention(report)).toBe(false);
+  });
+
+  it("sends the same SMS forwarded twice to YNAB with ONE import id", async () => {
+    const ynab = recordingYnab();
+    const mail = fakeMail([
+      sms("s1", "2026-11-02T22:50:00Z", PURCHASE),
+      sms("s1-again", "2026-11-02T22:50:09Z", PURCHASE),
+    ]);
+    await runIngest({ mail, ynab: ynab.port, registry: smsRegistry }, "2026-11-01T00:00:00Z");
+    const ids = ynab.received[0]?.map((d) => d.importId) ?? [];
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  it("asks for review when the SMS card is not in the registry, and when the SMS is unknown", async () => {
+    const ynab = recordingYnab();
+    const mail = fakeMail([
+      sms("s3", "2026-11-02T22:50:00Z", PURCHASE.replace("3429", "9999")),
+      sms("s4", "2026-11-02T22:51:00Z", "Banco de Bogota: Tu retiro por 200,000 fue exitoso"),
+    ]);
+    const report = await runIngest(
+      { mail, ynab: ynab.port, registry: smsRegistry },
+      "2026-11-01T00:00:00Z",
+    );
+    expect(ynab.received[0]).toEqual([]);
+    expect(report.needsReview.map((r) => r.reason)).toEqual(["unknown_last4"]);
+    expect(report.parseFailures.map((f) => f.code)).toEqual(["unrecognized_format"]);
+    expect(needsAttention(report)).toBe(true);
   });
 });

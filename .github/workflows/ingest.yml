@@ -50,6 +50,7 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           ACCOUNT_REGISTRY_JSON: ${{ secrets.ACCOUNT_REGISTRY_JSON }}
           CATEGORY_RULES_JSON: ${{ secrets.CATEGORY_RULES_JSON }}
+          SMS_FORWARD_FROM: ${{ secrets.SMS_FORWARD_FROM }}
           # Empty on scheduled runs, so fall back to the default window.
           LOOKBACK_HOURS: ${{ inputs.lookback_hours || '72' }}
           HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}

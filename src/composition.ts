@@ -25,6 +25,7 @@ export const buildContext = (env: IngestEnv): Context => ({
       clientSecret: env.GOOGLE_CLIENT_SECRET,
       refreshToken: env.GOOGLE_REFRESH_TOKEN,
     }),
+    env.SMS_FORWARD_FROM === undefined ? {} : { smsForwardFrom: env.SMS_FORWARD_FROM },
   ),
   ynab: createYnabHttpAdapter({ accessToken: env.YNAB_PAT, budgetId: env.YNAB_BUDGET_ID }),
   ynabRead: createYnabReadAdapter({ accessToken: env.YNAB_PAT, budgetId: env.YNAB_BUDGET_ID }),
