@@ -126,6 +126,21 @@ describe("runIngest", () => {
     expect(needsAttention(report)).toBe(false);
   });
 
+  it("reports as handled only the emails that parsed and were fully written", async () => {
+    const ynab = recordingYnab();
+    const mail = fakeMail([
+      email("ok", "2026-11-02T13:00:00Z", purchase("UBER", "10.000,00", "08:00")),
+      email(
+        "review",
+        "2026-11-02T14:00:00Z",
+        "Compraste COP10.000,00 en UNO con tu T.Cred *2075, el 02/11/2026 a las 09:00.",
+      ),
+      email("bad", "2026-11-02T15:00:00Z", "Bancolombia: Tu compra fue rechazada."),
+    ]);
+    const report = await runIngest({ mail, ynab: ynab.port, registry }, "2026-11-01T00:00:00Z");
+    expect(report.handledMessageIds).toEqual(["ok"]);
+  });
+
   it("surfaces unrecognized emails as parse failures and still writes the good ones", async () => {
     const ynab = recordingYnab();
     const mail = fakeMail([

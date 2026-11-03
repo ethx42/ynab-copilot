@@ -1,6 +1,8 @@
 # Unattended ingest: Gmail bank alerts -> YNAB (unapproved). Runs hourly.
-# A non-zero exit (unrecognized email, transaction needing review, no alerts at all, API
-# failure) fails the run, and GitHub emails the repo owner about failed scheduled runs.
+# A non-zero exit (no alerts at all, API failure, or an item that could NOT be handed to a human)
+# fails the run, and GitHub emails the repo owner about failed scheduled runs. Items that need a
+# human become a `needs-review` GitHub issue plus one push (once each); HEALTHCHECK_URL is the
+# external dead-man's switch that notices when this workflow stops running at all.
 #
 # NOTE: this repo is public, so the logs are public — the job prints only counts and ids.
 # NOTE: GitHub disables scheduled workflows after 60 days without repo activity; re-enable
@@ -11,9 +13,17 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: "Hours of Gmail history to re-read (72 normally; 336 to recover after a long outage)"
+        required: false
+        default: "72"
+        type: string
 
 permissions:
   contents: read
+  # Opens/closes the `needs-review` issues (the review queue).
+  issues: write
 
 # Never run two ingests at once; let a running one finish (queued run waits).
 concurrency:
@@ -40,3 +50,9 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           ACCOUNT_REGISTRY_JSON: ${{ secrets.ACCOUNT_REGISTRY_JSON }}
           CATEGORY_RULES_JSON: ${{ secrets.CATEGORY_RULES_JSON }}
+          # Empty on scheduled runs, so fall back to the default window.
+          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '72' }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}

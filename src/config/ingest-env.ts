@@ -59,6 +59,10 @@ const RulesFromJson = z
     return rules.data;
   });
 
+// Unset secrets reach the job as empty strings: blank means "not configured".
+const blankToUndefined = (value: unknown): unknown =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
 export const IngestEnvSchema = z.object({
   YNAB_PAT: z.string().min(1, "YNAB_PAT is required"),
   YNAB_BUDGET_ID: z.string().uuid("YNAB_BUDGET_ID must be a UUID"),
@@ -70,6 +74,35 @@ export const IngestEnvSchema = z.object({
   // How far back each run looks. Overlap between runs is intentional: the per-email import_id
   // makes YNAB skip anything it already has.
   LOOKBACK_HOURS: z.coerce.number().int().min(1).max(720).default(72),
+
+  // Optional operations channels. Each is off until configured; with none, any item that needs a
+  // human simply fails the run (GitHub then emails the owner).
+  // Dead-man's switch (healthchecks.io ping URL). The URL is the credential.
+  HEALTHCHECK_URL: z.preprocess(
+    blankToUndefined,
+    z.string().url().startsWith("https://", "must be an https URL").optional(),
+  ),
+  // Push notifications (ntfy). On ntfy.sh the topic name is the password.
+  NTFY_TOPIC: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/, "must be 1-64 letters, digits, '-' or '_'")
+      .optional(),
+  ),
+  NTFY_SERVER: z.preprocess(
+    blankToUndefined,
+    z.string().url().startsWith("https://", "must be an https URL").default("https://ntfy.sh"),
+  ),
+  // Review queue (GitHub issues). Both are provided by GitHub Actions itself.
+  GITHUB_TOKEN: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  GITHUB_REPOSITORY: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^[\w.-]+\/[\w.-]+$/, "must look like owner/name")
+      .optional(),
+  ),
 });
 
 export type IngestEnv = z.infer<typeof IngestEnvSchema>;

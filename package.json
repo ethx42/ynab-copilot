@@ -17,6 +17,7 @@
     "test:cov": "vitest run --coverage",
     "check": "pnpm typecheck && pnpm lint && pnpm lint:boundaries && pnpm format:check && pnpm test",
     "ingest": "tsx src/index.ts",
+    "digest": "tsx src/digest.ts",
     "gmail:consent": "tsx src/tools/gmail-consent.ts"
   },
   "devDependencies": {

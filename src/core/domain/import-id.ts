@@ -15,6 +15,10 @@ const BANK_CODE: Record<NormalizedTransaction["bank"], string> = {
   bancodebogota: "BB",
 };
 
+// Used to recognise the rows this pipeline created (e.g. to count the unapproved ones).
+export const isPipelineImportId = (importId: string): boolean =>
+  Object.values(BANK_CODE).some((code) => importId.startsWith(`${code}:`));
+
 export const importIdFor = (tx: NormalizedTransaction, positionInMessage: number): string => {
   const digest = createHash("sha256")
     .update(`${tx.bank}|${tx.sourceMessageId}|${String(positionInMessage)}`)

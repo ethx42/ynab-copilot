@@ -10,3 +10,9 @@ export type CreateResult = {
 export interface YnabPort {
   createTransactions(drafts: readonly YnabTransactionDraft[]): Promise<CreateResult>;
 }
+
+// Read-only view used by the daily digest.
+export interface YnabReadPort {
+  // Rows the pipeline imported (our import_id prefixes) that the owner has not approved yet.
+  countUnapprovedImported(): Promise<number>;
+}

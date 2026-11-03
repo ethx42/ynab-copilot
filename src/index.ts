@@ -3,10 +3,10 @@
 //
 // This repo is PUBLIC and so are its Actions logs: print only counts, ids and reason codes —
 // never merchants, amounts, card digits or email excerpts.
-import { createGoogleGmailApi, createGmailMailPort } from "./adapters/gmail/gmail-mail.js";
-import { createYnabHttpAdapter } from "./adapters/ynab/ynab-http.js";
+import { buildContext } from "./composition.js";
 import { formatIngestEnvIssues, IngestEnvSchema } from "./config/ingest-env.js";
-import { needsAttention, runIngest } from "./core/ingest/run-ingest.js";
+import { runIngest } from "./core/ingest/run-ingest.js";
+import { finishRun } from "./core/reporting/finish-run.js";
 
 const HOUR_MS = 3_600_000;
 
@@ -17,44 +17,38 @@ const main = async (): Promise<number> => {
     return 1;
   }
   const env = IngestEnvSchema.parse(process.env);
-
-  const mail = createGmailMailPort(
-    createGoogleGmailApi({
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
-      refreshToken: env.GOOGLE_REFRESH_TOKEN,
-    }),
-  );
-  const ynab = createYnabHttpAdapter({ accessToken: env.YNAB_PAT, budgetId: env.YNAB_BUDGET_ID });
+  const context = buildContext(env);
 
   const since = new Date(Date.now() - env.LOOKBACK_HOURS * HOUR_MS).toISOString();
-  const report = await runIngest(
-    { mail, ynab, registry: env.ACCOUNT_REGISTRY_JSON, rules: env.CATEGORY_RULES_JSON },
-    since,
-  );
+  let report;
+  try {
+    report = await runIngest(
+      {
+        mail: context.mail,
+        ynab: context.ynab,
+        registry: env.ACCOUNT_REGISTRY_JSON,
+        rules: env.CATEGORY_RULES_JSON,
+      },
+      since,
+    );
+  } catch (error) {
+    // Error name/message only: never the request, headers or env.
+    console.error(`ingest failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    // The run itself broke (Gmail or YNAB unreachable, bad token): tell the dead-man's switch
+    // right away instead of letting it discover the silence hours later.
+    try {
+      await context.ops.heartbeat?.ping("fail", "run crashed before finishing");
+    } catch {
+      // Already failing; the non-zero exit below is the loud part.
+    }
+    return 1;
+  }
 
   console.log(
     `ingest: ${String(report.emailsSeen)} emails, ${String(report.transactionsParsed)} transactions, ` +
       `${String(report.created)} created, ${String(report.duplicates)} already in YNAB`,
   );
-  for (const item of report.needsReview) {
-    // Reason, template and Gmail message id only: the import id and the transaction itself carry
-    // card digits, date and amount, which must not reach these public logs.
-    console.error(
-      `needs review: ${item.reason} (template ${item.tx.template}, message ${item.tx.sourceMessageId})`,
-    );
-  }
-  for (const failure of report.parseFailures) {
-    console.error(`parse failure: ${failure.code} (message ${failure.messageId})`);
-  }
-
-  // Core value: a transaction is never silently lost. No bank alert at all across the whole
-  // lookback window is itself suspicious (broken filter, revoked token, bank format change).
-  if (report.emailsSeen === 0) {
-    console.error(`no bank alerts in the last ${String(env.LOOKBACK_HOURS)}h — failing loudly`);
-    return 1;
-  }
-  return needsAttention(report) ? 1 : 0;
+  return finishRun(report, context.ops, env.LOOKBACK_HOURS);
 };
 
 main().then(
@@ -62,7 +56,6 @@ main().then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    // Error name/message only: never the request, headers or env.
     console.error(`ingest failed: ${error instanceof Error ? error.message : "unknown error"}`);
     process.exitCode = 1;
   },
