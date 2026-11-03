@@ -187,6 +187,80 @@ describe("Bancolombia parser — live alert shapes (2026-11-02)", () => {
   });
 });
 
+describe("Bancolombia parser — llave transfers and corresponsal cash (2026-10-31 shapes)", () => {
+  // Sentences keep the real structure; names, keys and places are invented (public repo).
+  it("parses B-8: transfer received through a llave, 2-digit year, thousands separators", () => {
+    const [tx] = parseOk(
+      "¡Listo! Todo salió bien con tus movimientos Bancolombia: SANTIAGO, recibiste una transferencia de EMPRESA EJEMPLO S.A.S por $77,950.00 en tu cuenta *1560 conectada a la llave 80000001 el 31/10/26 a las 09:20. Con llaves es de una y gratis. Dudas al 018000912345.",
+    );
+    expect(tx).toMatchObject({
+      template: "B-8",
+      kind: "inflow",
+      direction: "inflow",
+      amountPesos: 77950,
+      date: "2026-10-31",
+      time: "09:20",
+      account: { kind: "last4", last4: "1560" },
+      counterparty: "EMPRESA EJEMPLO S.A.S",
+    });
+  });
+
+  it("parses B-9: transfer received, double asterisk, no cents", () => {
+    const [tx] = parseOk(
+      "¡Listo! Todo salió bien con tus movimientos Bancolombia: Recibiste una transferencia por $300,000 de MARIA PEREZ en tu cuenta **1560, el 31/10/2026 a las 11:52. Si tienes dudas, hablemos: 018000931987.",
+    );
+    expect(tx).toMatchObject({
+      template: "B-9",
+      kind: "inflow",
+      amountPesos: 300000,
+      date: "2026-10-31",
+      time: "11:52",
+      account: { kind: "last4", last4: "1560" },
+      counterparty: "MARIA PEREZ",
+    });
+  });
+
+  it("parses B-10: transfer sent to a llave, naming the destination person", () => {
+    const [tx] = parseOk(
+      "¡Listo! Todo salió bien con tus movimientos Bancolombia: SANTIAGO, transferiste $30,000.00 a la llave @alias123 desde tu cuenta *1560 a JUAN EJEMPLO GOMEZ el 31/10/26 a las 15:12. Con Bre-b es de una y gratis. Dudas al 018000912345.",
+    );
+    expect(tx).toMatchObject({
+      template: "B-10",
+      kind: "transfer_out",
+      direction: "outflow",
+      amountPesos: 30000,
+      date: "2026-10-31",
+      time: "15:12",
+      account: { kind: "last4", last4: "1560" },
+      counterparty: "JUAN EJEMPLO GOMEZ",
+    });
+  });
+
+  it("parses B-11: corresponsal withdrawal with no account digits (savings product)", () => {
+    const [tx] = parseOk(
+      "¡Listo! Todo salió bien con tus movimientos Bancolombia: Retiraste $500,000 en nuestro corresponsal BARRIO EJEMPLO 3 en PUEBLO, el 31/10/26 a las 15:56. Si tienes dudas, hablemos: 018000931987.",
+    );
+    expect(tx).toMatchObject({
+      template: "B-11",
+      kind: "withdrawal",
+      direction: "outflow",
+      amountPesos: 500000,
+      date: "2026-10-31",
+      time: "15:56",
+      account: { kind: "product", product: "savings" },
+      counterparty: "BARRIO EJEMPLO 3 en PUEBLO",
+    });
+  });
+
+  it("still fails loudly when a new llave wording sits next to a known one", () => {
+    const outcome = parseBancolombia({
+      messageId: "m5",
+      text: "Retiraste $500,000 en nuestro corresponsal UNO, el 31/10/26 a las 15:56. Ademas recibiste una transferencia de OTRA FORMA por $1,000 sin cuenta.",
+    });
+    expect(outcome).toMatchObject({ ok: false, error: { code: "unrecognized_format" } });
+  });
+});
+
 describe("Bancolombia parser — sentence boundaries and unmatched text", () => {
   it("never merges a malformed B-7 sentence with the next valid one (it fails loudly)", () => {
     // Without the sentence-boundary guard this parsed as ONE withdrawal taking the FIRST amount

@@ -43,7 +43,9 @@ describe("date and time parsing", () => {
   it("converts DD/MM/YYYY to ISO and validates the calendar", () => {
     expect(parseDmyDate("02/11/2026")).toEqual({ ok: true, value: "2026-11-02" });
     expect(parseDmyDate("29/02/2028")).toEqual({ ok: true, value: "2028-02-29" });
+    expect(parseDmyDate("31/10/26")).toEqual({ ok: true, value: "2026-10-31" });
     expect(parseDmyDate("31/02/2026").ok).toBe(false);
+    expect(parseDmyDate("31/02/26").ok).toBe(false);
     expect(parseDmyDate("2026-11-02").ok).toBe(false);
   });
 
