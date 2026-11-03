@@ -73,7 +73,7 @@ describe("YNAB HTTP adapter", () => {
   });
 
   it("omits the payee when absent and sends the memo when present", async () => {
-    const fetchImpl = fakeFetch(() => jsonResponse(201, { data: { transaction_ids: [] } }));
+    const fetchImpl = fakeFetch(() => jsonResponse(201, { data: { transaction_ids: ["t1"] } }));
     const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
     await ynab.createTransactions([
       draft({ payeeName: null, memo: "Transferencia Bancolombia a *75639212378" }),
@@ -97,14 +97,33 @@ describe("YNAB HTTP adapter", () => {
   });
 
   it("splits large batches into several requests and merges the results", async () => {
+    // First request carries 100 drafts, the second the remaining 1.
     const fetchImpl = fakeFetch((n) =>
-      jsonResponse(201, { data: { transaction_ids: [`t${String(n)}`] } }),
+      jsonResponse(201, {
+        data: {
+          transaction_ids: Array.from(
+            { length: n === 1 ? 100 : 1 },
+            (_v, i) => `t${String(n)}-${String(i)}`,
+          ),
+        },
+      }),
     );
     const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
     const drafts = Array.from({ length: 101 }, (_v, i) => draft({ importId: `BC:X:${String(i)}` }));
     const result = await ynab.createTransactions(drafts);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(result.createdIds).toEqual(["t1", "t2"]);
+    expect(result.createdIds).toHaveLength(101);
+    expect(result.createdIds[100]).toBe("t2-0");
+  });
+
+  it("fails the run when YNAB accounts for fewer transactions than were submitted", async () => {
+    const fetchImpl = fakeFetch(() =>
+      jsonResponse(201, { data: { transaction_ids: ["t1"], duplicate_import_ids: [] } }),
+    );
+    const ynab = createYnabHttpAdapter({ accessToken: TOKEN, budgetId: BUDGET, fetchImpl });
+    await expect(
+      ynab.createTransactions([draft({ importId: "BC:A" }), draft({ importId: "BC:B" })]),
+    ).rejects.toThrow("accounted for 1 of 2");
   });
 
   it("sends nothing for an empty batch", async () => {

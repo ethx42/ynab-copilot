@@ -74,7 +74,7 @@ const TEMPLATES: readonly TemplateSpec[] = [
     // NOTE the inverted time/date order and the absence of trailing digits.
     template: "B-2",
     pattern: new RegExp(
-      String.raw`Recibiste un pago por (?<amt>\$[\d.,]+) de (?<cp>.+?) a tu cuenta AHORROS, el ${TIME} a las ${DATE}`,
+      String.raw`Recibiste un pago por (?<amt>\$[\d.,]+) de (?<cp>(?:(?!Recibiste un pago ).)+?) a tu cuenta AHORROS, el ${TIME} a las ${DATE}`,
       "g",
     ),
     kind: "inflow",
@@ -131,7 +131,7 @@ const TEMPLATES: readonly TemplateSpec[] = [
     // Debit-card ATM withdrawal: CO separators behind a bare `$`, and a DOUBLE asterisk.
     template: "B-7",
     pattern: new RegExp(
-      String.raw`Retiraste (?<amt>\$[\d.,]+) en (?<cp>.+?) de tu T\.Deb \*{1,2}(?<last4>\d{4}) el ${DATE} a las ${TIME}`,
+      String.raw`Retiraste (?<amt>\$[\d.,]+) en (?<cp>(?:(?!Retiraste ).)+?) de tu T\.Deb \*{1,2}(?<last4>\d{4}) el ${DATE} a las ${TIME}`,
       "g",
     ),
     kind: "withdrawal",
@@ -188,6 +188,13 @@ const buildTransaction = (
   return parsed.success ? ok(parsed.data) : fail("schema");
 };
 
+// The opening of every transaction sentence we know, followed by a currency token. Used to spot
+// transaction text that NO template matched (a new wording sitting next to a known one).
+const TRANSACTION_OPENING =
+  /(?:Compraste|Retiraste|Transferiste|pagaste|Recibiste un pago por|Transferencia por|Pago de Tarjeta de Credito por) (?:[A-Z]{3}|\$)/;
+
+const excerptFrom = (text: string, index: number): string => text.slice(index, index + 160);
+
 export const parseBancolombia = (input: ParseInput): ParseOutcome => {
   const text = normalizeText(input.text);
   const found: NormalizedTransaction[] = [];
@@ -206,11 +213,22 @@ export const parseBancolombia = (input: ParseInput): ParseOutcome => {
   }
 
   if (found.length === 0) {
-    const start = Math.max(text.indexOf("Bancolombia"), 0);
     return err({
       code: "unrecognized_format",
       messageId: input.messageId,
-      excerpt: text.slice(start, start + 160),
+      excerpt: excerptFrom(text, Math.max(text.indexOf("Bancolombia"), 0)),
+    });
+  }
+
+  // Never write part of an email and silently drop the rest: if, after removing everything a
+  // template matched, transaction-looking text remains, fail the whole message loudly.
+  const leftover = TEMPLATES.reduce((rest, spec) => rest.replace(spec.pattern, " "), text);
+  const stray = TRANSACTION_OPENING.exec(leftover);
+  if (stray !== null) {
+    return err({
+      code: "unrecognized_format",
+      messageId: input.messageId,
+      excerpt: excerptFrom(leftover, stray.index),
     });
   }
   return ok(found);

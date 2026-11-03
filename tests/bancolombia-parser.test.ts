@@ -187,6 +187,44 @@ describe("Bancolombia parser — live alert shapes (2026-11-02)", () => {
   });
 });
 
+describe("Bancolombia parser — sentence boundaries and unmatched text", () => {
+  it("never merges a malformed B-7 sentence with the next valid one (it fails loudly)", () => {
+    // Without the sentence-boundary guard this parsed as ONE withdrawal taking the FIRST amount
+    // ($100.000) and the SECOND sentence's date/card: a silently wrong row.
+    const outcome = parseBancolombia({
+      messageId: "m1",
+      text: "Retiraste $100.000,00 en ATM_UNO sin datos. Retiraste $500.000,00 en ATM_DOS de tu T.Deb **0669 el 26/09/2026 a las 20:31.",
+    });
+    expect(outcome).toMatchObject({ ok: false, error: { code: "unrecognized_format" } });
+  });
+
+  it("never merges a malformed B-2 sentence with the next valid one (it fails loudly)", () => {
+    const outcome = parseBancolombia({
+      messageId: "m3",
+      text: "Recibiste un pago por $1,000.00 de ALGUIEN sin mas. Recibiste un pago por $15,823,003.00 de WIZELINE SAS a tu cuenta AHORROS, el 10:02 a las 27/05/2026.",
+    });
+    expect(outcome).toMatchObject({ ok: false, error: { code: "unrecognized_format" } });
+  });
+
+  it("fails the whole message when a known purchase sits next to an unknown wording", () => {
+    const outcome = parseBancolombia({
+      messageId: "m2",
+      text: "Bancolombia: Compraste COP10.000,00 en UNO con tu T.Cred *8139, el 02/11/2026 a las 08:00. Ademas Compraste USD 12.00 en OTRO con tu T.Cred *8139 el 02/11/2026.",
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { code: "unrecognized_format", messageId: "m2" },
+    });
+  });
+
+  it("ignores ordinary boilerplate that merely resembles a transaction verb", () => {
+    const [tx] = parseOk(
+      "Recibiste este mensaje porque tienes alertas activas. Compraste COP10.000,00 en UNO con tu T.Cred *8139, el 02/11/2026 a las 08:00.",
+    );
+    expect(tx).toMatchObject({ amountPesos: 10000, counterparty: "UNO" });
+  });
+});
+
 describe("Bancolombia parser — fail loud, never drop", () => {
   it("reports unrecognized wording explicitly", () => {
     const outcome = parseBancolombia({

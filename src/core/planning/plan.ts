@@ -14,7 +14,6 @@ export type PlanItem =
 
 // Turns parsed transactions into either a ready-to-write draft or an explicit review item.
 // Nothing is dropped: every input produces exactly one PlanItem (core value: never silently lose).
-// `txs` MUST be in a stable order (see assignImportIds).
 export const planTransactions = (
   txs: readonly NormalizedTransaction[],
   registry: AccountRegistry,

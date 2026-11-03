@@ -35,7 +35,11 @@ const main = async (): Promise<number> => {
       `${String(report.created)} created, ${String(report.duplicates)} already in YNAB`,
   );
   for (const item of report.needsReview) {
-    console.error(`needs review: ${item.reason} (template ${item.tx.template}, ${item.importId})`);
+    // Reason, template and Gmail message id only: the import id and the transaction itself carry
+    // card digits, date and amount, which must not reach these public logs.
+    console.error(
+      `needs review: ${item.reason} (template ${item.tx.template}, message ${item.tx.sourceMessageId})`,
+    );
   }
   for (const failure of report.parseFailures) {
     console.error(`parse failure: ${failure.code} (message ${failure.messageId})`);

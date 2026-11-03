@@ -1,31 +1,37 @@
+import { createHash } from "node:crypto";
 import type { NormalizedTransaction } from "./transaction.js";
 
-// YNAB `import_id` max length is 36. Format: `<BANK>:<ACCT>:<YYYYMMDD>T<HHMM>:<PESOS>:<N>`
-// e.g. `BC:8139:20261102T0800:217375:1` (31 chars). Deterministic from the bank's own
-// printed fields, so re-running the pipeline can never create a duplicate: YNAB lists
-// repeats in `duplicate_import_ids` instead of creating them.
+// YNAB `import_id` is at most 36 characters. Format: `<BANK>:<32 hex>` (35 chars), where the
+// hex is the SHA-256 of `<bank>|<Gmail message id>|<position inside that email>`.
+//
+// Why the email, not the amount/time: the id must not depend on which OTHER alerts happen to be
+// inside the Gmail lookback window (a counter would shift after an outage and silently turn a
+// real purchase into a "duplicate"), and it must stay within 36 chars for any amount. Every bank
+// alert is its own email, so two genuinely identical purchases get two different ids, while a
+// re-read of the same email always yields the same id and YNAB reports it in
+// `duplicate_import_ids` instead of creating it twice.
 const BANK_CODE: Record<NormalizedTransaction["bank"], string> = {
   bancolombia: "BC",
   bancodebogota: "BB",
 };
 
-export const baseImportKey = (tx: NormalizedTransaction): string => {
-  const acct = tx.account.kind === "last4" ? tx.account.last4 : "SAV";
-  const stamp = `${tx.date.replaceAll("-", "")}T${tx.time.replace(":", "")}`;
-  return `${BANK_CODE[tx.bank]}:${acct}:${stamp}:${tx.amountPesos}`;
+export const importIdFor = (tx: NormalizedTransaction, positionInMessage: number): string => {
+  const digest = createHash("sha256")
+    .update(`${tx.bank}|${tx.sourceMessageId}|${String(positionInMessage)}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${BANK_CODE[tx.bank]}:${digest}`;
 };
 
 export type WithImportId = { readonly tx: NormalizedTransaction; readonly importId: string };
 
-// Two genuinely identical purchases in the same minute (same card, same amount) need
-// distinct ids: the Nth repeat of a base key gets `:N`. Callers MUST pass transactions in a
-// stable order (Gmail internalDate, then message id) so the same email always gets the same N.
+// The position counts transactions of the SAME email in the order they were parsed, so it is
+// stable for a given email regardless of what else is in the batch.
 export const assignImportIds = (txs: readonly NormalizedTransaction[]): WithImportId[] => {
-  const seen = new Map<string, number>();
+  const seenPerMessage = new Map<string, number>();
   return txs.map((tx) => {
-    const base = baseImportKey(tx);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return { tx, importId: `${base}:${n}` };
+    const position = seenPerMessage.get(tx.sourceMessageId) ?? 0;
+    seenPerMessage.set(tx.sourceMessageId, position + 1);
+    return { tx, importId: importIdFor(tx, position) };
   });
 };

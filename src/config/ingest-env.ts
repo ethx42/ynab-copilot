@@ -35,8 +35,8 @@ export const IngestEnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
   GOOGLE_REFRESH_TOKEN: z.string().min(1, "GOOGLE_REFRESH_TOKEN is required"),
   ACCOUNT_REGISTRY_JSON: RegistryFromJson,
-  // How far back each run looks. Overlap between runs is intentional: YNAB's import_id
-  // de-duplicates, and import_id occurrence counters need earlier same-minute alerts in view.
+  // How far back each run looks. Overlap between runs is intentional: the per-email import_id
+  // makes YNAB skip anything it already has.
   LOOKBACK_HOURS: z.coerce.number().int().min(1).max(720).default(72),
 });
 

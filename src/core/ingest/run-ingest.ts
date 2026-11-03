@@ -37,8 +37,8 @@ export const needsAttention = (report: IngestReport): boolean =>
 export const runIngest = async (deps: IngestDeps, sinceIso: string): Promise<IngestReport> => {
   const alerts = await deps.mail.listAlertsSince(sinceIso);
 
-  // Stable chronological order: import_id occurrence counters depend on it. The Gmail window
-  // must always include every earlier alert of the same minute (use a generous overlap).
+  // Chronological order keeps the written batch (and the report) deterministic. import ids no
+  // longer depend on it: they derive from the email itself.
   const ordered = [...alerts].sort(
     (a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.messageId.localeCompare(b.messageId),
   );

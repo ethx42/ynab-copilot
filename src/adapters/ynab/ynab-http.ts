@@ -81,6 +81,16 @@ export const createYnabHttpAdapter = (options: YnabHttpOptions): YnabPort => {
     }
 
     const parsed = CreateResponseSchema.parse(await response.json());
+    // Every submitted draft must come back either created or reported as a duplicate. Fewer
+    // outcomes than drafts means some were neither written nor acknowledged: fail the run
+    // instead of reporting a smaller `created` count as success. (Lower bound, not equality:
+    // YNAB does not document a strict one-to-one mapping.)
+    const accounted = parsed.data.transaction_ids.length + parsed.data.duplicate_import_ids.length;
+    if (accounted < drafts.length) {
+      throw new Error(
+        `YNAB accounted for ${String(accounted)} of ${String(drafts.length)} submitted transactions`,
+      );
+    }
     return {
       createdIds: parsed.data.transaction_ids,
       duplicateImportIds: parsed.data.duplicate_import_ids,

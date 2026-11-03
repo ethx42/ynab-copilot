@@ -1,6 +1,6 @@
 export type AlertEmail = {
   readonly messageId: string;
-  // Gmail internalDate as ISO-8601 UTC — the stable ordering key for import-id occurrences.
+  // Gmail internalDate as ISO-8601 UTC — the chronological ordering key.
   readonly receivedAt: string;
   readonly from: string;
   // Decoded text/plain body.

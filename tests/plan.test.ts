@@ -31,41 +31,38 @@ const base: NormalizedTransaction = {
 };
 
 describe("import_id", () => {
-  it("is deterministic from the bank's own fields and fits YNAB's 36-char limit", () => {
+  it("is `<BANK>:<32 hex>` and fits YNAB's 36-char limit whatever the amount", () => {
     const [first] = assignImportIds([base]);
-    expect(first?.importId).toBe("BC:8139:20261102T0800:217375:1");
-    const big = assignImportIds([
-      {
-        ...base,
-        account: { kind: "product", product: "savings" },
-        amountPesos: 99_999_999_999,
-        date: "2026-12-31",
-        time: "23:59",
-      },
-    ]);
-    expect(big[0]?.importId.length).toBeLessThanOrEqual(36);
+    expect(first?.importId).toMatch(/^BC:[0-9a-f]{32}$/);
+    const huge = assignImportIds([{ ...base, amountPesos: 9_999_999_999_999 }]);
+    expect(huge[0]?.importId.length).toBeLessThanOrEqual(36);
+    const bogota = assignImportIds([{ ...base, bank: "bancodebogota" }]);
+    expect(bogota[0]?.importId).toMatch(/^BB:[0-9a-f]{32}$/);
   });
 
-  it("gives repeats of the same minute/amount distinct, order-stable ids", () => {
-    const ids = assignImportIds([base, { ...base, sourceMessageId: "m2" }, base]).map(
-      (x) => x.importId,
-    );
-    expect(ids).toEqual([
-      "BC:8139:20261102T0800:217375:1",
-      "BC:8139:20261102T0800:217375:2",
-      "BC:8139:20261102T0800:217375:3",
-    ]);
+  it("gives two identical purchases in DIFFERENT emails different ids", () => {
+    const ids = assignImportIds([base, { ...base, sourceMessageId: "m2" }]).map((x) => x.importId);
+    expect(new Set(ids).size).toBe(2);
   });
 
-  it("never collides across different cards or minutes", () => {
-    const ids = new Set(
-      assignImportIds([
-        base,
-        { ...base, time: "08:01" },
-        { ...base, account: { kind: "last4", last4: "0338" } },
-      ]).map((x) => x.importId),
-    );
-    expect(ids.size).toBe(3);
+  it("gives several transactions inside ONE email different ids", () => {
+    const ids = assignImportIds([base, base, base]).map((x) => x.importId);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it("does not depend on what else is in the batch (lookback-window independent)", () => {
+    const alone = assignImportIds([{ ...base, sourceMessageId: "later" }])[0]?.importId;
+    const withEarlier = assignImportIds([
+      { ...base, sourceMessageId: "earlier" },
+      { ...base, sourceMessageId: "later" },
+    ])[1]?.importId;
+    expect(alone).toBe(withEarlier);
+  });
+
+  it("is stable for the same email and never depends on the printed amount or time", () => {
+    const first = assignImportIds([base])[0]?.importId;
+    expect(assignImportIds([base])[0]?.importId).toBe(first);
+    expect(assignImportIds([{ ...base, time: "08:01" }])[0]?.importId).toBe(first);
   });
 });
 
@@ -118,6 +115,7 @@ describe("account registry", () => {
 describe("planTransactions", () => {
   it("builds unapproved, signed, cleared drafts for resolvable transactions", () => {
     const [item] = planTransactions([base], registry);
+    const expectedImportId: unknown = expect.stringMatching(/^BC:[0-9a-f]{32}$/);
     expect(item).toEqual({
       status: "ready",
       draft: {
@@ -126,7 +124,7 @@ describe("planTransactions", () => {
         amountMilliunits: -217375000,
         payeeName: "AMAZON MKTPLACE PMTS",
         memo: null,
-        importId: "BC:8139:20261102T0800:217375:1",
+        importId: expectedImportId,
         cleared: "cleared",
         approved: false,
       },

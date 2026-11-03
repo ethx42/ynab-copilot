@@ -3,6 +3,7 @@
 // GOOGLE_REFRESH_TOKEN. It is never run by CI and never logs the client secret.
 //
 //   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... pnpm gmail:consent
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { OAuth2Client } from "google-auth-library";
 import { GMAIL_READONLY_SCOPE } from "../adapters/gmail/gmail-mail.js";
@@ -23,17 +24,22 @@ if (
 }
 
 const oauth = new OAuth2Client(clientId, clientSecret, REDIRECT_URI);
+// Binds the callback to THIS consent request, so another page cannot feed the local server a
+// code from a different Google account.
+const state = randomUUID();
 const authUrl = oauth.generateAuthUrl({
   access_type: "offline",
   // `consent` forces Google to return a refresh token even if this app was approved before.
   prompt: "consent",
   scope: [GMAIL_READONLY_SCOPE],
+  state,
 });
 
 const server = createServer((req, res) => {
-  const code = new URL(req.url ?? "/", REDIRECT_URI).searchParams.get("code");
-  if (code === null) {
-    res.writeHead(400).end("Missing ?code");
+  const params = new URL(req.url ?? "/", REDIRECT_URI).searchParams;
+  const code = params.get("code");
+  if (code === null || params.get("state") !== state) {
+    res.writeHead(400).end("Missing code or unexpected state");
     return;
   }
   oauth.getToken(code).then(
