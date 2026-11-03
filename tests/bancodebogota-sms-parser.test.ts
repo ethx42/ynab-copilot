@@ -115,6 +115,17 @@ describe("Banco de Bogota SMS parser (BB-SMS-1)", () => {
     expect(outcome).toMatchObject({ ok: false, error: { code: "unrecognized_format" } });
   });
 
+  it("fails the whole message when a known purchase shares the body with a verb-first transaction", () => {
+    for (const extra of [
+      "Retiraste $200,000 en CAJERO 1234",
+      "Recibiste una transferencia por $50,000 de JUAN",
+      "Pagaste $9,000 a ACME",
+    ]) {
+      const outcome = parse(`${sms("COMCEL")} ${extra}`);
+      expect(outcome).toMatchObject({ ok: false, error: { code: "unrecognized_format" } });
+    }
+  });
+
   it("rejects an amount with other separators rather than reading it 1000x off", () => {
     const outcome = parse(
       "Banco de Bogota: Tu compra por 53.900 fue aprobada con Tarjeta Crédito 3429 el 05/10/26 10:45:48 en X ¿Dudas?",

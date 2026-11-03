@@ -40,7 +40,10 @@ const IGNORABLE: readonly RegExp[] = [
 
 // What is left over after removing the known sentences. If any of these remain, the SMS
 // carries a transaction we do not understand (a reversal, a withdrawal, a payment...).
-const STRAY_TRANSACTION = /\bTu (?:compra|pago|retiro|transferencia|avance|abono|reversion)\b/i;
+// Beyond the `Tu ...` openers it also covers the verb-first openers the Bancolombia parser guards
+// against, so a body that mixes a known purchase with any other transaction sentence fails whole.
+const STRAY_TRANSACTION =
+  /\b(?:Tu (?:compra|pago|retiro|transferencia|avance|abono|reversion)|Recibiste (?:una transferencia|un pago)|Retiraste|Compraste|Transferiste|Pagaste)\b/i;
 
 const excerptOf = (text: string, index: number): string => text.slice(index, index + 160);
 
